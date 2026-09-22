@@ -26,6 +26,15 @@ function normalizeBlocks(raw: any) {
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
+function normalizePeriodic(raw: any, listKey: string, labelKey: string) {
+  const list = (raw[listKey] ?? []).map((e: any) => ({
+    ...e,
+    [labelKey]: e[labelKey] ?? e.period,
+  }));
+  return { [listKey]: list, totals: raw.totals };
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 function normalizeSessions(raw: any) {
   const sessions = (raw.sessions ?? []).map((s: any) => ({
     ...s,
@@ -47,7 +56,16 @@ export async function GET(request: NextRequest) {
       return NextResponse.json(parseSessionsFromJSONL());
     }
     const raw = runCcusage(view);
-    const data = view === "blocks" ? normalizeBlocks(raw) : raw;
+    const data =
+      view === "blocks"
+        ? normalizeBlocks(raw)
+        : view === "daily"
+          ? normalizePeriodic(raw, "daily", "date")
+          : view === "monthly"
+            ? normalizePeriodic(raw, "monthly", "month")
+            : view === "weekly"
+              ? normalizePeriodic(raw, "weekly", "week")
+              : raw;
     return NextResponse.json(data);
   } catch (err) {
     const detail = err instanceof Error ? err.message : String(err);
