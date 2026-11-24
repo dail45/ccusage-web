@@ -1,7 +1,7 @@
 {
-  "name": "ccusage-web",
-  "version": "0.1.3",
-  "description": "Local web dashboard for monitoring Claude Code token usage and costs",
+  "name": "ccusage-webui",
+  "version": "0.1.4",
+  "description": "Local web dashboard for monitoring Claude Code and AI agent token usage and costs",
   "keywords": [
     "claude",
     "claude-code",
@@ -16,27 +16,29 @@
     "nextjs",
     "dashboard"
   ],
-  "homepage": "https://github.com/hamzaahmedkhan/ccusage-web",
+  "homepage": "https://github.com/notLiria/ccusage-web",
   "repository": {
     "type": "git",
-    "url": "https://github.com/hamzaahmedkhan/ccusage-web.git"
+    "url": "https://github.com/notLiria/ccusage-web.git"
   },
   "bugs": {
-    "url": "https://github.com/hamzaahmedkhan/ccusage-web/issues"
+    "url": "https://github.com/notLiria/ccusage-web/issues"
   },
   "license": "MIT",
   "bin": {
-    "ccusage-web": "./bin/ccusage-web.js"
+    "ccusage-webui": "./bin/ccusage-web.js"
   },
   "files": [
     "bin",
     ".next",
+    "!.next/dev",
+    "!.next/cache",
+    "!.next/trace*",
     "public",
     "app",
     "components",
     "lib",
     "next.config.ts",
-    "tailwind.config.ts",
     "tsconfig.json",
     "components.json",
     "postcss.config.mjs"
@@ -47,11 +49,11 @@
     "start": "next start",
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
+    "prepublishOnly": "npm run typecheck && npm run build",
     "screenshots": "node scripts/capture-screenshots.mjs"
   },
   "dependencies": {
     "@base-ui/react": "^1.4.1",
-    "ccusage-web": "^0.1.3",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "lucide-react": "^1.8.0",

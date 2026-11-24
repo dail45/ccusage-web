@@ -17,15 +17,13 @@ try {
 }
 
 function open(url) {
-  const cmd =
-    process.platform === "darwin"
-      ? "open"
-      : process.platform === "win32"
-        ? "start"
-        : "xdg-open";
   try {
-    // spawnSync avoids shell interpolation of the URL
-    spawnSync(cmd, [url], { stdio: "ignore" });
+    if (process.platform === "win32") {
+      spawnSync("cmd", ["/c", "start", "", url], { stdio: "ignore" });
+    } else {
+      const cmd = process.platform === "darwin" ? "open" : "xdg-open";
+      spawnSync(cmd, [url], { stdio: "ignore" });
+    }
   } catch {}
 }
 
@@ -33,12 +31,12 @@ const buildDir = path.join(appDir, ".next");
 const needsBuild = !fs.existsSync(buildDir);
 
 if (needsBuild) {
-  console.log("Building ccusage-web (first run — this takes ~30s)…");
+  console.log("Building ccusage-webui (first run — this takes ~30s)…");
   const build = spawnSync(process.execPath, [nextCli, "build"], { cwd: appDir, stdio: "inherit" });
   if (build.status !== 0) process.exit(build.status ?? 1);
 }
 
-console.log(`\nStarting ccusage-web on http://localhost:${port}\n`);
+console.log(`\nStarting ccusage-webui on http://localhost:${port}\n`);
 
 const server = spawn(process.execPath, [nextCli, "start", "--port", port], {
   cwd: appDir,

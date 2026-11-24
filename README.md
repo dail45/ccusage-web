@@ -46,12 +46,12 @@ Each view includes:
 ## Quick start
 
 ```bash
-# Run directly without installing (builds on first run, ~30s)
-npx ccusage-web
+# Run directly without installing
+npx ccusage-webui
 
 # Or install globally for instant starts
-npm install -g ccusage-web
-ccusage-web
+npm install -g ccusage-webui
+ccusage-webui
 ```
 
 Your browser opens automatically at `http://localhost:4242`.
