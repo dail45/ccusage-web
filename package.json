@@ -16,13 +16,13 @@
     "nextjs",
     "dashboard"
   ],
-  "homepage": "https://github.com/notLiria/ccusage-web",
+  "homepage": "https://github.com/dail45/ccusage-web",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/notLiria/ccusage-web.git"
+    "url": "git+https://github.com/dail45/ccusage-web.git"
   },
   "bugs": {
-    "url": "https://github.com/notLiria/ccusage-web/issues"
+    "url": "https://github.com/dail45/ccusage-web/issues"
   },
   "license": "MIT",
   "bin": {
