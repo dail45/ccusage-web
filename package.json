@@ -19,14 +19,14 @@
   "homepage": "https://github.com/notLiria/ccusage-web",
   "repository": {
     "type": "git",
-    "url": "https://github.com/notLiria/ccusage-web.git"
+    "url": "git+https://github.com/notLiria/ccusage-web.git"
   },
   "bugs": {
     "url": "https://github.com/notLiria/ccusage-web/issues"
   },
   "license": "MIT",
   "bin": {
-    "ccusage-webui": "./bin/ccusage-web.js"
+    "ccusage-webui": "bin/ccusage-web.js"
   },
   "files": [
     "bin",
