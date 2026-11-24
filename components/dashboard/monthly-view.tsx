@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Table,
@@ -10,6 +10,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from "recharts";
+import { DateRangeFilter } from "./date-range-filter";
 import { ModelBreakdownChart } from "./model-breakdown";
 import { TokenBreakdown } from "./token-breakdown";
 import { OverviewStats } from "./overview-stats";
@@ -20,7 +21,14 @@ import {
   toTimestamp,
   useTableSort,
 } from "./sortable-head";
-import { formatCost, formatTokens, shortModelName, modelColor, aggregateModelBreakdowns } from "@/lib/utils";
+import {
+  aggregateModelBreakdowns,
+  formatCost,
+  formatTokens,
+  modelColor,
+  shortModelName,
+  sumUsageTotals,
+} from "@/lib/utils";
 import type { MonthlyEntry, MonthlyResponse } from "@/lib/types";
 
 type MonthlySortKey = "month" | "cost" | "tokens" | "cacheRead" | "topModel";
@@ -40,74 +48,143 @@ const MONTHLY_SORT_GETTERS: Record<MonthlySortKey, (m: MonthlyEntry) => string |
   },
 };
 
+interface MonthlyTooltipProps {
+  active?: boolean;
+  payload?: Array<{ value?: number }>;
+  label?: string;
+}
+
+function CustomTooltip({ active, payload, label }: MonthlyTooltipProps) {
+  if (!active || !payload?.length) return null;
+  return (
+    <div className="rounded-lg border bg-card px-3 py-2 text-sm shadow-lg">
+      <p className="font-medium">{label}</p>
+      <p className="font-mono text-primary">{formatCost(payload[0].value ?? 0)}</p>
+    </div>
+  );
+}
+
 export function MonthlyView({ data }: { data: MonthlyResponse }) {
   const { monthly, totals } = data;
   const { sort, toggleSort } = useTableSort<MonthlySortKey>();
-  const aggregatedTotals = totals ?? {
-    inputTokens: monthly.reduce((s, d) => s + d.inputTokens, 0),
-    outputTokens: monthly.reduce((s, d) => s + d.outputTokens, 0),
-    cacheCreationTokens: monthly.reduce((s, d) => s + d.cacheCreationTokens, 0),
-    cacheReadTokens: monthly.reduce((s, d) => s + d.cacheReadTokens, 0),
-    totalTokens: monthly.reduce((s, d) => s + d.totalTokens, 0),
-    totalCost: monthly.reduce((s, d) => s + d.totalCost, 0),
-  };
-  const allBreakdowns = monthly.flatMap((m) => m.modelBreakdowns);
+  const [from, setFrom] = useState("");
+  const [to, setTo] = useState("");
+
+  const chronologicalMonths = useMemo(
+    () => [...monthly].sort((a, b) => a.month.localeCompare(b.month)),
+    [monthly]
+  );
+
+  const minMonth = chronologicalMonths[0]?.month;
+  const maxMonth = chronologicalMonths[chronologicalMonths.length - 1]?.month;
+
+  const filteredMonthly = useMemo(
+    () =>
+      chronologicalMonths.filter((m) => {
+        if (from && m.month < from) return false;
+        if (to && m.month > to) return false;
+        return true;
+      }),
+    [chronologicalMonths, from, to]
+  );
+
+  const hasActiveFilter = Boolean(from || to);
+
+  const aggregatedTotals = useMemo(
+    () => (!hasActiveFilter && totals ? totals : sumUsageTotals(filteredMonthly)),
+    [hasActiveFilter, totals, filteredMonthly]
+  );
+
+  const allBreakdowns = useMemo(
+    () => filteredMonthly.flatMap((m) => m.modelBreakdowns),
+    [filteredMonthly]
+  );
 
   const sortedMonthly = useMemo(
     () =>
-      sortRows(monthly, sort, MONTHLY_SORT_GETTERS, (a, b) =>
+      sortRows(filteredMonthly, sort, MONTHLY_SORT_GETTERS, (a, b) =>
         compareTimestampsDesc(a.month, b.month)
       ),
-    [monthly, sort]
+    [filteredMonthly, sort]
   );
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  function CustomTooltip({ active, payload, label }: any) {
-    if (!active || !payload?.length) return null;
-    return (
-      <div className="rounded-lg border bg-card px-3 py-2 text-sm shadow-lg">
-        <p className="font-medium">{label}</p>
-        <p className="font-mono text-primary">{formatCost(payload[0].value)}</p>
-      </div>
-    );
+  function handleFromChange(nextFrom: string) {
+    setFrom(nextFrom);
+    if (to && nextFrom && nextFrom > to) {
+      setTo(nextFrom);
+    }
   }
+
+  function handleToChange(nextTo: string) {
+    setTo(nextTo);
+    if (from && nextTo && nextTo < from) {
+      setFrom(nextTo);
+    }
+  }
+
+  function handleReset() {
+    setFrom("");
+    setTo("");
+  }
+
+  const statsLabel = hasActiveFilter
+    ? `${filteredMonthly.length} months (${from || minMonth || "…"} – ${to || maxMonth || "…"})`
+    : `${monthly.length} months shown`;
 
   return (
     <div className="space-y-4">
-      <OverviewStats totals={aggregatedTotals} label={`${monthly.length} months shown`} />
+      <DateRangeFilter
+        type="month"
+        from={from}
+        to={to}
+        min={minMonth}
+        max={maxMonth}
+        onFromChange={handleFromChange}
+        onToChange={handleToChange}
+        onReset={handleReset}
+        hasActiveFilter={hasActiveFilter}
+      />
+
+      <OverviewStats totals={aggregatedTotals} label={statsLabel} />
 
       <Card>
         <CardHeader className="pb-2 pt-4 px-4">
           <CardTitle className="text-sm font-medium">Monthly Spend</CardTitle>
         </CardHeader>
         <CardContent className="px-4 pb-4">
-          <ResponsiveContainer width="100%" height={220}>
-            <BarChart
-              data={monthly.map((m) => ({ label: m.month, cost: m.totalCost }))}
-              margin={{ top: 4, right: 8, left: 0, bottom: 0 }}
-            >
-              <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
-              <XAxis
-                dataKey="label"
-                tick={{ fontSize: 11, fill: "var(--muted-foreground)" }}
-                tickLine={false}
-                axisLine={false}
-              />
-              <YAxis
-                tickFormatter={(v) => `$${v.toFixed(0)}`}
-                tick={{ fontSize: 11, fill: "var(--muted-foreground)" }}
-                tickLine={false}
-                axisLine={false}
-                width={44}
-              />
-              <Tooltip content={<CustomTooltip />} />
-              <Bar dataKey="cost" radius={[4, 4, 0, 0]}>
-                {monthly.map((m) => (
-                  <Cell key={m.month} fill="#3b82f6" />
-                ))}
-              </Bar>
-            </BarChart>
-          </ResponsiveContainer>
+          {filteredMonthly.length === 0 ? (
+            <div className="flex h-[220px] items-center justify-center text-sm text-muted-foreground">
+              No monthly data in selected range
+            </div>
+          ) : (
+            <ResponsiveContainer width="100%" height={220}>
+              <BarChart
+                data={filteredMonthly.map((m) => ({ label: m.month, cost: m.totalCost }))}
+                margin={{ top: 4, right: 8, left: 0, bottom: 0 }}
+              >
+                <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
+                <XAxis
+                  dataKey="label"
+                  tick={{ fontSize: 11, fill: "var(--muted-foreground)" }}
+                  tickLine={false}
+                  axisLine={false}
+                />
+                <YAxis
+                  tickFormatter={(v) => `$${v.toFixed(0)}`}
+                  tick={{ fontSize: 11, fill: "var(--muted-foreground)" }}
+                  tickLine={false}
+                  axisLine={false}
+                  width={44}
+                />
+                <Tooltip content={<CustomTooltip />} />
+                <Bar dataKey="cost" radius={[4, 4, 0, 0]}>
+                  {filteredMonthly.map((m) => (
+                    <Cell key={m.month} fill="#3b82f6" />
+                  ))}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          )}
         </CardContent>
       </Card>
 
