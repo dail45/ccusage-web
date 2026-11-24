@@ -92,6 +92,7 @@ export function SessionView({ data }: { data: SessionResponse }) {
               <TableHeader>
                 <TableRow>
                   <TableHead>Started</TableHead>
+                  <TableHead>Agent</TableHead>
                   <TableHead className="text-right">Cost</TableHead>
                   <TableHead className="text-right hidden sm:table-cell">Tokens</TableHead>
                   <TableHead className="hidden md:table-cell">Project</TableHead>
@@ -99,10 +100,19 @@ export function SessionView({ data }: { data: SessionResponse }) {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {filteredSessions.map((s) => (
-                  <TableRow key={s.sessionId}>
+                {filteredSessions.map((s, idx) => (
+                  <TableRow key={s.sessionId ? `${s.agent ?? ""}:${s.sessionId}` : idx}>
                     <TableCell className="font-mono text-xs text-muted-foreground">
                       {s.startTime ? new Date(s.startTime).toLocaleString() : "—"}
+                    </TableCell>
+                    <TableCell>
+                      {s.agent ? (
+                        <Badge variant="outline" className="text-xs font-mono px-1.5 py-0">
+                          {s.agent}
+                        </Badge>
+                      ) : (
+                        <span className="text-xs text-muted-foreground">—</span>
+                      )}
                     </TableCell>
                     <TableCell className="text-right font-mono font-medium text-sm">
                       {formatCost(s.totalCost)}
@@ -113,7 +123,7 @@ export function SessionView({ data }: { data: SessionResponse }) {
                     <TableCell className="hidden md:table-cell max-w-[200px]">
                       {s.projectPath && (
                         <span className="text-xs text-muted-foreground truncate block font-mono">
-                          {s.projectPath.split("/").pop()}
+                          {s.projectPath.split(/[/\\]/).filter(Boolean).pop() ?? s.projectPath}
                         </span>
                       )}
                     </TableCell>

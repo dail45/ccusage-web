@@ -45,7 +45,8 @@ export interface WeeklyEntry {
 
 export interface SessionEntry {
   sessionId: string;
-  startTime: string;
+  agent?: string;
+  startTime: string | null;
   endTime?: string;
   inputTokens: number;
   outputTokens: number;

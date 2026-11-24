@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
 import { runCcusage } from "@/lib/ccusage";
-import { parseSessionsFromJSONL } from "@/lib/sessions-parser";
 
 const ALLOWED_VIEWS = ["daily", "monthly", "weekly", "session", "blocks"] as const;
 type View = (typeof ALLOWED_VIEWS)[number];
@@ -34,13 +33,36 @@ function normalizePeriodic(raw: any, listKey: string, labelKey: string) {
   return { [listKey]: list, totals: raw.totals };
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function normalizeSessions(raw: any) {
-  const sessions = (raw.sessions ?? []).map((s: any) => ({
+interface RawSessionEntry {
+  sessionId?: string;
+  period?: string;
+  agent?: string;
+  startTime?: string | null;
+  lastActivity?: string | null;
+  projectPath?: string;
+  metadata?: {
+    lastActivity?: string | null;
+    projectPath?: string;
+  };
+  [key: string]: unknown;
+}
+
+interface RawSessionResponse {
+  sessions?: RawSessionEntry[];
+  session?: RawSessionEntry[];
+  totals?: unknown;
+}
+
+function normalizeSessions(raw: unknown) {
+  const data = (raw ?? {}) as RawSessionResponse;
+  const list = data.sessions ?? data.session ?? [];
+  const sessions = list.map((s) => ({
     ...s,
-    startTime: s.startTime ?? s.lastActivity ?? null,
+    sessionId: s.sessionId ?? s.period ?? "",
+    startTime: s.startTime ?? s.lastActivity ?? s.metadata?.lastActivity ?? null,
+    projectPath: s.projectPath ?? s.metadata?.projectPath ?? "",
   }));
-  return { sessions, totals: raw.totals };
+  return { sessions, totals: data.totals };
 }
 
 export async function GET(request: NextRequest) {
@@ -52,9 +74,6 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    if (view === "session") {
-      return NextResponse.json(parseSessionsFromJSONL());
-    }
     const raw = runCcusage(view);
     const data =
       view === "blocks"
@@ -65,7 +84,9 @@ export async function GET(request: NextRequest) {
             ? normalizePeriodic(raw, "monthly", "month")
             : view === "weekly"
               ? normalizePeriodic(raw, "weekly", "week")
-              : raw;
+              : view === "session"
+                ? normalizeSessions(raw)
+                : raw;
     return NextResponse.json(data);
   } catch (err) {
     const detail = err instanceof Error ? err.message : String(err);
