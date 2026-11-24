@@ -1,22 +1,41 @@
 "use client";
 
+import { useMemo } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Table,
   TableBody,
   TableCell,
-  TableHead,
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { OverviewStats } from "./overview-stats";
 import { CostChart } from "./cost-chart";
+import {
+  SortableHead,
+  compareTimestampsDesc,
+  sortRows,
+  toTimestamp,
+  useTableSort,
+} from "./sortable-head";
 import { formatCost, formatTokens, shortModelName, modelColor } from "@/lib/utils";
-import type { BlocksResponse } from "@/lib/types";
+import type { BlockEntry, BlocksResponse } from "@/lib/types";
+
+type BlockSortKey = "start" | "end" | "cost" | "tokens" | "models" | "status";
+
+const BLOCK_SORT_GETTERS: Record<BlockSortKey, (b: BlockEntry) => string | number | null> = {
+  start: (b) => toTimestamp(b.startTime),
+  end: (b) => toTimestamp(b.endTime),
+  cost: (b) => b.totalCost,
+  tokens: (b) => b.totalTokens,
+  models: (b) => (b.modelsUsed ?? []).map(shortModelName).sort().join(", "),
+  status: (b) => (b.isActive ? 1 : 0),
+};
 
 export function BlocksView({ data }: { data: BlocksResponse }) {
   const { blocks } = data;
+  const { sort, toggleSort } = useTableSort<BlockSortKey>();
   const totals = data.totals ?? {
     inputTokens: blocks.reduce((s, d) => s + d.inputTokens, 0),
     outputTokens: blocks.reduce((s, d) => s + d.outputTokens, 0),
@@ -25,6 +44,14 @@ export function BlocksView({ data }: { data: BlocksResponse }) {
     totalTokens: blocks.reduce((s, d) => s + d.totalTokens, 0),
     totalCost: blocks.reduce((s, d) => s + d.totalCost, 0),
   };
+
+  const sortedBlocks = useMemo(
+    () =>
+      sortRows(blocks, sort, BLOCK_SORT_GETTERS, (a, b) =>
+        compareTimestampsDesc(a.startTime, b.startTime)
+      ),
+    [blocks, sort]
+  );
 
   const chartData = blocks.map((b, i) => ({
     label: b.startTime
@@ -56,17 +83,39 @@ export function BlocksView({ data }: { data: BlocksResponse }) {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Start</TableHead>
-                <TableHead>End</TableHead>
-                <TableHead className="text-right">Cost</TableHead>
-                <TableHead className="text-right hidden sm:table-cell">Tokens</TableHead>
-                <TableHead className="hidden md:table-cell">Models</TableHead>
-                <TableHead className="hidden lg:table-cell">Status</TableHead>
+                <SortableHead column="start" label="Start" sort={sort} onSort={toggleSort} />
+                <SortableHead column="end" label="End" sort={sort} onSort={toggleSort} />
+                <SortableHead column="cost" label="Cost" sort={sort} onSort={toggleSort} align="right" />
+                <SortableHead
+                  column="tokens"
+                  label="Tokens"
+                  sort={sort}
+                  onSort={toggleSort}
+                  align="right"
+                  className="hidden sm:table-cell"
+                />
+                <SortableHead
+                  column="models"
+                  label="Models"
+                  sort={sort}
+                  onSort={toggleSort}
+                  className="hidden md:table-cell"
+                />
+                <SortableHead
+                  column="status"
+                  label="Status"
+                  sort={sort}
+                  onSort={toggleSort}
+                  className="hidden lg:table-cell"
+                />
               </TableRow>
             </TableHeader>
             <TableBody>
-              {[...blocks].reverse().map((b, i) => (
-                <TableRow key={i} className={b.isActive ? "bg-primary/5" : ""}>
+              {sortedBlocks.map((b, i) => (
+                <TableRow
+                  key={b.startTime ? `${b.startTime}-${b.endTime}` : i}
+                  className={b.isActive ? "bg-primary/5" : ""}
+                >
                   <TableCell className="font-mono text-xs text-muted-foreground">
                     {b.startTime ? new Date(b.startTime).toLocaleString() : "—"}
                   </TableCell>

@@ -6,18 +6,39 @@ import {
   Table,
   TableBody,
   TableCell,
-  TableHead,
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { OverviewStats } from "./overview-stats";
+import {
+  SortableHead,
+  compareTimestampsDesc,
+  sortRows,
+  toTimestamp,
+  useTableSort,
+} from "./sortable-head";
 import { formatCost, formatTokens, shortModelName, modelColor } from "@/lib/utils";
-import type { SessionResponse } from "@/lib/types";
+import type { SessionEntry, SessionResponse } from "@/lib/types";
 
 type FilterPeriod = "1D" | "7D" | "30D" | "All";
+type SessionSortKey = "started" | "agent" | "cost" | "tokens" | "project" | "models";
 
 const FILTERS: FilterPeriod[] = ["1D", "7D", "30D", "All"];
+
+function getProjectName(projectPath?: string): string {
+  if (!projectPath) return "";
+  return projectPath.split(/[/\\]/).filter(Boolean).pop() ?? projectPath;
+}
+
+const SESSION_SORT_GETTERS: Record<SessionSortKey, (s: SessionEntry) => string | number | null> = {
+  started: (s) => toTimestamp(s.startTime),
+  agent: (s) => s.agent ?? "",
+  cost: (s) => s.totalCost,
+  tokens: (s) => s.totalTokens,
+  project: (s) => getProjectName(s.projectPath),
+  models: (s) => (s.modelsUsed ?? []).map(shortModelName).sort().join(", "),
+};
 
 function startOfPeriod(period: FilterPeriod): Date | null {
   if (period === "All") return null;
@@ -33,19 +54,17 @@ function startOfPeriod(period: FilterPeriod): Date | null {
 
 export function SessionView({ data }: { data: SessionResponse }) {
   const [filter, setFilter] = useState<FilterPeriod>("1D");
+  const { sort, toggleSort } = useTableSort<SessionSortKey>();
 
   const filteredSessions = useMemo(() => {
     const cutoff = startOfPeriod(filter);
     const filtered = cutoff
       ? data.sessions.filter((s) => s.startTime && new Date(s.startTime) >= cutoff)
-      : [...data.sessions];
-    // ascending: oldest first
-    return filtered.sort((a, b) => {
-      if (!a.startTime) return 1;
-      if (!b.startTime) return -1;
-      return new Date(a.startTime).getTime() - new Date(b.startTime).getTime();
-    });
-  }, [data.sessions, filter]);
+      : data.sessions;
+    return sortRows(filtered, sort, SESSION_SORT_GETTERS, (a, b) =>
+      compareTimestampsDesc(a.startTime, b.startTime)
+    );
+  }, [data.sessions, filter, sort]);
 
   const totals = useMemo(() => ({
     inputTokens: filteredSessions.reduce((s, d) => s + d.inputTokens, 0),
@@ -91,12 +110,31 @@ export function SessionView({ data }: { data: SessionResponse }) {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Started</TableHead>
-                  <TableHead>Agent</TableHead>
-                  <TableHead className="text-right">Cost</TableHead>
-                  <TableHead className="text-right hidden sm:table-cell">Tokens</TableHead>
-                  <TableHead className="hidden md:table-cell">Project</TableHead>
-                  <TableHead className="hidden lg:table-cell">Models</TableHead>
+                  <SortableHead column="started" label="Started" sort={sort} onSort={toggleSort} />
+                  <SortableHead column="agent" label="Agent" sort={sort} onSort={toggleSort} />
+                  <SortableHead column="cost" label="Cost" sort={sort} onSort={toggleSort} align="right" />
+                  <SortableHead
+                    column="tokens"
+                    label="Tokens"
+                    sort={sort}
+                    onSort={toggleSort}
+                    align="right"
+                    className="hidden sm:table-cell"
+                  />
+                  <SortableHead
+                    column="project"
+                    label="Project"
+                    sort={sort}
+                    onSort={toggleSort}
+                    className="hidden md:table-cell"
+                  />
+                  <SortableHead
+                    column="models"
+                    label="Models"
+                    sort={sort}
+                    onSort={toggleSort}
+                    className="hidden lg:table-cell"
+                  />
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -123,7 +161,7 @@ export function SessionView({ data }: { data: SessionResponse }) {
                     <TableCell className="hidden md:table-cell max-w-[200px]">
                       {s.projectPath && (
                         <span className="text-xs text-muted-foreground truncate block font-mono">
-                          {s.projectPath.split(/[/\\]/).filter(Boolean).pop() ?? s.projectPath}
+                          {getProjectName(s.projectPath)}
                         </span>
                       )}
                     </TableCell>

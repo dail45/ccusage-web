@@ -1,11 +1,11 @@
 "use client";
 
+import { useMemo } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Table,
   TableBody,
   TableCell,
-  TableHead,
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
@@ -13,11 +13,36 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContaine
 import { ModelBreakdownChart } from "./model-breakdown";
 import { TokenBreakdown } from "./token-breakdown";
 import { OverviewStats } from "./overview-stats";
+import {
+  SortableHead,
+  compareTimestampsDesc,
+  sortRows,
+  toTimestamp,
+  useTableSort,
+} from "./sortable-head";
 import { formatCost, formatTokens, shortModelName, modelColor, aggregateModelBreakdowns } from "@/lib/utils";
-import type { MonthlyResponse } from "@/lib/types";
+import type { MonthlyEntry, MonthlyResponse } from "@/lib/types";
+
+type MonthlySortKey = "month" | "cost" | "tokens" | "cacheRead" | "topModel";
+
+function getTopModel(entry: MonthlyEntry) {
+  return [...(entry.modelBreakdowns ?? [])].sort((a, b) => b.cost - a.cost)[0];
+}
+
+const MONTHLY_SORT_GETTERS: Record<MonthlySortKey, (m: MonthlyEntry) => string | number | null> = {
+  month: (m) => toTimestamp(m.month) ?? m.month,
+  cost: (m) => m.totalCost,
+  tokens: (m) => m.totalTokens,
+  cacheRead: (m) => m.cacheReadTokens,
+  topModel: (m) => {
+    const top = getTopModel(m);
+    return top ? shortModelName(top.modelName) : "";
+  },
+};
 
 export function MonthlyView({ data }: { data: MonthlyResponse }) {
   const { monthly, totals } = data;
+  const { sort, toggleSort } = useTableSort<MonthlySortKey>();
   const aggregatedTotals = totals ?? {
     inputTokens: monthly.reduce((s, d) => s + d.inputTokens, 0),
     outputTokens: monthly.reduce((s, d) => s + d.outputTokens, 0),
@@ -27,6 +52,14 @@ export function MonthlyView({ data }: { data: MonthlyResponse }) {
     totalCost: monthly.reduce((s, d) => s + d.totalCost, 0),
   };
   const allBreakdowns = monthly.flatMap((m) => m.modelBreakdowns);
+
+  const sortedMonthly = useMemo(
+    () =>
+      sortRows(monthly, sort, MONTHLY_SORT_GETTERS, (a, b) =>
+        compareTimestampsDesc(a.month, b.month)
+      ),
+    [monthly, sort]
+  );
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   function CustomTooltip({ active, payload, label }: any) {
@@ -91,16 +124,29 @@ export function MonthlyView({ data }: { data: MonthlyResponse }) {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Month</TableHead>
-                <TableHead className="text-right">Cost</TableHead>
-                <TableHead className="text-right">Tokens</TableHead>
-                <TableHead className="text-right hidden sm:table-cell">Cache Read</TableHead>
-                <TableHead className="hidden md:table-cell">Top Model</TableHead>
+                <SortableHead column="month" label="Month" sort={sort} onSort={toggleSort} />
+                <SortableHead column="cost" label="Cost" sort={sort} onSort={toggleSort} align="right" />
+                <SortableHead column="tokens" label="Tokens" sort={sort} onSort={toggleSort} align="right" />
+                <SortableHead
+                  column="cacheRead"
+                  label="Cache Read"
+                  sort={sort}
+                  onSort={toggleSort}
+                  align="right"
+                  className="hidden sm:table-cell"
+                />
+                <SortableHead
+                  column="topModel"
+                  label="Top Model"
+                  sort={sort}
+                  onSort={toggleSort}
+                  className="hidden md:table-cell"
+                />
               </TableRow>
             </TableHeader>
             <TableBody>
-              {[...monthly].reverse().map((m) => {
-                const topModel = [...(m.modelBreakdowns ?? [])].sort((a, b) => b.cost - a.cost)[0];
+              {sortedMonthly.map((m) => {
+                const topModel = getTopModel(m);
                 return (
                   <TableRow key={m.month}>
                     <TableCell className="font-mono text-sm">{m.month}</TableCell>
