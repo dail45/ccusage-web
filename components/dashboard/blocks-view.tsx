@@ -10,6 +10,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
+import { ModelBadge } from "./model-badge";
 import { OverviewStats } from "./overview-stats";
 import { CostChart } from "./cost-chart";
 import {
@@ -19,7 +20,7 @@ import {
   toTimestamp,
   useTableSort,
 } from "./sortable-head";
-import { formatCost, formatTokens, shortModelName, modelColor } from "@/lib/utils";
+import { formatCost, formatTokens, shortModelName } from "@/lib/utils";
 import type { BlockEntry, BlocksResponse } from "@/lib/types";
 
 type BlockSortKey = "start" | "end" | "cost" | "tokens" | "models" | "status";
@@ -135,14 +136,7 @@ export function BlocksView({ data }: { data: BlocksResponse }) {
                   <TableCell className="hidden md:table-cell">
                     <div className="flex gap-1 flex-wrap">
                       {b.modelsUsed?.map((m) => (
-                        <Badge
-                          key={m}
-                          variant="secondary"
-                          className="text-xs font-mono px-1.5 py-0"
-                          style={{ borderColor: modelColor(m) }}
-                        >
-                          {shortModelName(m)}
-                        </Badge>
+                        <ModelBadge key={m} model={m} />
                       ))}
                     </div>
                   </TableCell>
