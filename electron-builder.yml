@@ -41,11 +41,10 @@ portable:
   artifactName: ${productName}-Portable-${version}.${ext}
 
 mac:
-  # GitHub's macos-latest runners are Apple Silicon; the bundled ccusage binary
-  # is per-arch, so only arm64 is built.
-  target:
-    - target: dmg
-      arch: [arm64]
+  # The bundled ccusage binary is per-arch, so each arch is built on its own
+  # runner (arm64 on macos-latest, x64 on macos-15-intel); arch comes from CLI.
+  target: dmg
+  artifactName: ${productName}-${version}-${arch}.${ext}
   category: public.app-category.developer-tools
 linux:
   target: AppImage

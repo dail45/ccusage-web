@@ -69,7 +69,7 @@ npm run electron:dist   # build installers into dist-electron/
 - Builds are unsigned, so Windows SmartScreen / macOS Gatekeeper may show a warning on first launch.
 - The app uses a stable local port (4243 by default) so your saved preferences persist between launches.
 
-Download installers (Windows `.exe`, macOS Apple Silicon `.dmg`, Linux `.AppImage`) from [GitHub Releases](https://github.com/dail45/ccusage-web/releases/latest).
+Download installers (Windows `.exe`, macOS `.dmg` for Apple Silicon (`arm64`) and Intel (`x64`), Linux `.AppImage`) from [GitHub Releases](https://github.com/dail45/ccusage-web/releases/latest).
 
 ### Releasing
 
