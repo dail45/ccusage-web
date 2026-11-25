@@ -20,6 +20,7 @@ import {
   toTimestamp,
   useTableSort,
 } from "./sortable-head";
+import { KPI_METRIC_META, type KpiMetricId } from "@/lib/metrics";
 import { formatCost, formatTokens, shortModelName } from "@/lib/utils";
 import type { BlockEntry, BlocksResponse } from "@/lib/types";
 
@@ -34,7 +35,19 @@ const BLOCK_SORT_GETTERS: Record<BlockSortKey, (b: BlockEntry) => string | numbe
   status: (b) => (b.isActive ? 1 : 0),
 };
 
-export function BlocksView({ data }: { data: BlocksResponse }) {
+export function BlocksView({
+  data,
+  kpiCards,
+  onUpdateKpiCards,
+  activeMetric = "totalCost",
+  onSelectMetric,
+}: {
+  data: BlocksResponse;
+  kpiCards: KpiMetricId[];
+  onUpdateKpiCards: (next: KpiMetricId[]) => void;
+  activeMetric?: KpiMetricId;
+  onSelectMetric?: (metric: KpiMetricId) => void;
+}) {
   const { blocks } = data;
   const { sort, toggleSort } = useTableSort<BlockSortKey>();
   const totals = data.totals ?? {
@@ -54,25 +67,37 @@ export function BlocksView({ data }: { data: BlocksResponse }) {
     [blocks, sort]
   );
 
+  const activeMetricMeta = KPI_METRIC_META[activeMetric];
   const chartData = blocks.map((b, i) => ({
     label: b.startTime
       ? new Date(b.startTime).toLocaleDateString("en-US", { month: "numeric", day: "numeric" }) +
         " " +
         new Date(b.startTime).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" })
       : `Block ${i + 1}`,
-    cost: b.totalCost,
+    value: activeMetricMeta.getSeriesValue(b),
   }));
 
   return (
     <div className="space-y-4">
-      <OverviewStats totals={totals} label={`${blocks.length} billing blocks`} />
+      <OverviewStats
+        totals={totals}
+        label={`${blocks.length} billing blocks`}
+        itemCount={blocks.length}
+        unitLabel="block"
+        kpiCards={kpiCards}
+        onUpdateKpiCards={onUpdateKpiCards}
+        activeMetric={activeMetric}
+        onSelectMetric={onSelectMetric}
+      />
 
       <Card>
         <CardHeader className="pb-2 pt-4 px-4">
-          <CardTitle className="text-sm font-medium">Spend per 5-Hour Block</CardTitle>
+          <CardTitle className="text-sm font-medium">
+            {activeMetricMeta.chartTitlePrefix} per 5-Hour Block
+          </CardTitle>
         </CardHeader>
         <CardContent className="px-4 pb-4">
-          <CostChart data={chartData} />
+          <CostChart data={chartData} metric={activeMetric} />
         </CardContent>
       </Card>
 

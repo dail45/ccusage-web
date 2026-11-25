@@ -19,6 +19,7 @@ import {
   toTimestamp,
   useTableSort,
 } from "./sortable-head";
+import type { KpiMetricId } from "@/lib/metrics";
 import { formatCost, formatTokens, shortModelName } from "@/lib/utils";
 import type { SessionEntry, SessionResponse } from "@/lib/types";
 
@@ -53,7 +54,17 @@ function startOfPeriod(period: FilterPeriod): Date | null {
   return d;
 }
 
-export function SessionView({ data }: { data: SessionResponse }) {
+export function SessionView({
+  data,
+  kpiCards,
+  onUpdateKpiCards,
+  onConfigureModel,
+}: {
+  data: SessionResponse;
+  kpiCards: KpiMetricId[];
+  onUpdateKpiCards: (next: KpiMetricId[]) => void;
+  onConfigureModel?: (modelName: string) => void;
+}) {
   const [filter, setFilter] = useState<FilterPeriod>("1D");
   const { sort, toggleSort } = useTableSort<SessionSortKey>();
 
@@ -78,7 +89,14 @@ export function SessionView({ data }: { data: SessionResponse }) {
 
   return (
     <div className="space-y-4">
-      <OverviewStats totals={totals} label={`${filteredSessions.length} sessions`} />
+      <OverviewStats
+        totals={totals}
+        label={`${filteredSessions.length} sessions`}
+        itemCount={filteredSessions.length}
+        unitLabel="session"
+        kpiCards={kpiCards}
+        onUpdateKpiCards={onUpdateKpiCards}
+      />
 
       <Card>
         <CardHeader className="pb-2 pt-4 px-4">
@@ -139,7 +157,11 @@ export function SessionView({ data }: { data: SessionResponse }) {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {filteredSessions.map((s, idx) => (
+                {filteredSessions.map((s, idx) => {
+                  const missingModels = new Set(
+                    (s.modelBreakdowns ?? []).filter((b) => b.missingPricing).map((b) => b.modelName)
+                  );
+                  return (
                   <TableRow key={s.sessionId ? `${s.agent ?? ""}:${s.sessionId}` : idx}>
                     <TableCell className="font-mono text-xs text-muted-foreground">
                       {s.startTime ? new Date(s.startTime).toLocaleString() : "—"}
@@ -169,12 +191,18 @@ export function SessionView({ data }: { data: SessionResponse }) {
                     <TableCell className="hidden lg:table-cell">
                       <div className="flex gap-1 flex-wrap">
                         {s.modelsUsed?.map((m) => (
-                          <ModelBadge key={m} model={m} />
+                          <ModelBadge
+                            key={m}
+                            model={m}
+                            missingPricing={missingModels.has(m)}
+                            onFixPricing={onConfigureModel}
+                          />
                         ))}
                       </div>
                     </TableCell>
                   </TableRow>
-                ))}
+                  );
+                })}
               </TableBody>
             </Table>
           )}

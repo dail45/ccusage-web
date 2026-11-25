@@ -22,6 +22,12 @@ import {
   toTimestamp,
   useTableSort,
 } from "./sortable-head";
+import { KPI_METRIC_META, type KpiMetricId } from "@/lib/metrics";
+import {
+  DAILY_RANGE_OPTIONS,
+  detectActivePreset,
+  getPresetDateRange,
+} from "@/lib/preferences";
 import {
   aggregateModelBreakdowns,
   cn,
@@ -30,7 +36,7 @@ import {
   shortModelName,
   sumUsageTotals,
 } from "@/lib/utils";
-import type { DailyEntry, DailyResponse } from "@/lib/types";
+import type { DailyEntry, DailyRangePreset, DailyResponse } from "@/lib/types";
 
 type DailySortKey = "date" | "cost" | "tokens" | "cacheRead" | "models";
 
@@ -42,12 +48,25 @@ const DAILY_SORT_GETTERS: Record<DailySortKey, (d: DailyEntry) => string | numbe
   models: (d) => d.modelsUsed.map(shortModelName).sort().join(", "),
 };
 
-export function DailyView({ data }: { data: DailyResponse }) {
+export function DailyView({
+  data,
+  defaultRange = "all",
+  kpiCards,
+  onUpdateKpiCards,
+  activeMetric = "totalCost",
+  onSelectMetric,
+  onConfigureModel,
+}: {
+  data: DailyResponse;
+  defaultRange?: DailyRangePreset;
+  kpiCards: KpiMetricId[];
+  onUpdateKpiCards: (next: KpiMetricId[]) => void;
+  activeMetric?: KpiMetricId;
+  onSelectMetric?: (metric: KpiMetricId) => void;
+  onConfigureModel?: (modelName: string) => void;
+}) {
   const { daily, totals } = data;
   const { sort, toggleSort } = useTableSort<DailySortKey>();
-  const [from, setFrom] = useState("");
-  const [to, setTo] = useState("");
-  const [selectedDate, setSelectedDate] = useState<string | null>(null);
 
   const chronologicalDays = useMemo(
     () => [...daily].sort((a, b) => a.date.localeCompare(b.date)),
@@ -56,6 +75,15 @@ export function DailyView({ data }: { data: DailyResponse }) {
 
   const minDate = chronologicalDays[0]?.date;
   const maxDate = chronologicalDays[chronologicalDays.length - 1]?.date;
+
+  const [from, setFrom] = useState(() => getPresetDateRange(defaultRange, maxDate).from);
+  const [to, setTo] = useState(() => getPresetDateRange(defaultRange, maxDate).to);
+  const [selectedDate, setSelectedDate] = useState<string | null>(null);
+
+  const activePreset = useMemo(
+    () => detectActivePreset(from, to, maxDate),
+    [from, to, maxDate]
+  );
 
   const filteredDays = useMemo(
     () =>
@@ -89,6 +117,13 @@ export function DailyView({ data }: { data: DailyResponse }) {
     () => statsDays.flatMap((d) => d.modelBreakdowns),
     [statsDays]
   );
+
+  const aggregatedBreakdowns = useMemo(
+    () => aggregateModelBreakdowns(allBreakdowns),
+    [allBreakdowns]
+  );
+
+  const activeMetricMeta = KPI_METRIC_META[activeMetric];
 
   const sortedDaily = useMemo(
     () =>
@@ -132,6 +167,15 @@ export function DailyView({ data }: { data: DailyResponse }) {
     setSelectedDate((prev) => (prev === date ? null : date));
   }
 
+  function handleSelectPreset(presetValue: string) {
+    const next = getPresetDateRange(presetValue as DailyRangePreset, maxDate);
+    setFrom(next.from);
+    setTo(next.to);
+    if (selectedDate && next.from && (selectedDate < next.from || (next.to && selectedDate > next.to))) {
+      setSelectedDate(null);
+    }
+  }
+
   function handleReset() {
     setFrom("");
     setTo("");
@@ -158,14 +202,28 @@ export function DailyView({ data }: { data: DailyResponse }) {
         hasActiveFilter={hasActiveFilter}
         selectedLabel={selectedDayEntry?.date ?? null}
         onClearSelected={() => setSelectedDate(null)}
+        presets={DAILY_RANGE_OPTIONS}
+        activePreset={activePreset}
+        onSelectPreset={handleSelectPreset}
       />
 
-      <OverviewStats totals={aggregatedTotals} label={statsLabel} />
+      <OverviewStats
+        totals={aggregatedTotals}
+        label={statsLabel}
+        itemCount={statsDays.length}
+        unitLabel="day"
+        kpiCards={kpiCards}
+        onUpdateKpiCards={onUpdateKpiCards}
+        activeMetric={activeMetric}
+        onSelectMetric={onSelectMetric}
+      />
 
       <Card>
         <CardHeader className="pb-2 pt-4 px-4">
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <CardTitle className="text-sm font-medium">Daily Spend</CardTitle>
+            <CardTitle className="text-sm font-medium">
+              Daily {activeMetricMeta.chartTitlePrefix}
+            </CardTitle>
             <span className="text-[11px] text-muted-foreground">
               Click a day for details · Drag edges to zoom
             </span>
@@ -176,16 +234,26 @@ export function DailyView({ data }: { data: DailyResponse }) {
             allDays={chronologicalDays}
             visibleDays={filteredDays}
             selectedDate={selectedDayEntry?.date ?? null}
+            metric={activeMetric}
             onSelectDate={handleSelectDate}
             onRangeCommit={handleRangeCommit}
           />
         </CardContent>
       </Card>
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-        <ModelBreakdownChart breakdowns={aggregateModelBreakdowns(allBreakdowns)} />
-        <TokenBreakdown totals={aggregatedTotals} />
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 items-stretch">
+        <ModelBreakdownChart
+          breakdowns={aggregatedBreakdowns}
+          mode="cost"
+          onConfigureModel={onConfigureModel}
+        />
+        <ModelBreakdownChart
+          breakdowns={aggregatedBreakdowns}
+          mode="tokens"
+        />
       </div>
+
+      <TokenBreakdown totals={aggregatedTotals} />
 
       <Card>
         <CardHeader className="pb-2 pt-4 px-4">
@@ -218,6 +286,9 @@ export function DailyView({ data }: { data: DailyResponse }) {
             <TableBody>
               {sortedDaily.map((day) => {
                 const isSelected = selectedDayEntry?.date === day.date;
+                const missingModels = new Set(
+                  day.modelBreakdowns.filter((b) => b.missingPricing).map((b) => b.modelName)
+                );
                 return (
                   <TableRow
                     key={day.date}
@@ -237,7 +308,12 @@ export function DailyView({ data }: { data: DailyResponse }) {
                     <TableCell className="hidden md:table-cell">
                       <div className="flex gap-1 flex-wrap">
                         {day.modelsUsed.map((m) => (
-                          <ModelBadge key={m} model={m} />
+                          <ModelBadge
+                            key={m}
+                            model={m}
+                            missingPricing={missingModels.has(m)}
+                            onFixPricing={onConfigureModel}
+                          />
                         ))}
                       </div>
                     </TableCell>

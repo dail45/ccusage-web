@@ -9,7 +9,18 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from "recharts";
+import {
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ResponsiveContainer,
+  Cell,
+  ReferenceLine,
+} from "recharts";
+import { KPI_METRIC_META, type KpiMetricId } from "@/lib/metrics";
 import { DateRangeFilter } from "./date-range-filter";
 import { ModelBreakdownChart } from "./model-breakdown";
 import { TokenBreakdown } from "./token-breakdown";
@@ -52,19 +63,37 @@ interface MonthlyTooltipProps {
   active?: boolean;
   payload?: Array<{ value?: number }>;
   label?: string;
+  metric: KpiMetricId;
 }
 
-function CustomTooltip({ active, payload, label }: MonthlyTooltipProps) {
+function CustomTooltip({ active, payload, label, metric }: MonthlyTooltipProps) {
   if (!active || !payload?.length) return null;
+  const meta = KPI_METRIC_META[metric];
   return (
     <div className="rounded-lg border bg-card px-3 py-2 text-sm shadow-lg">
-      <p className="font-medium">{label}</p>
-      <p className="font-mono text-primary">{formatCost(payload[0].value ?? 0)}</p>
+      <p className="font-medium font-mono text-xs">{label}</p>
+      <p className="font-mono font-medium" style={{ color: meta.accentColor }}>
+        {meta.formatTooltipValue(payload[0].value ?? 0)}
+      </p>
     </div>
   );
 }
 
-export function MonthlyView({ data }: { data: MonthlyResponse }) {
+export function MonthlyView({
+  data,
+  kpiCards,
+  onUpdateKpiCards,
+  activeMetric = "totalCost",
+  onSelectMetric,
+  onConfigureModel,
+}: {
+  data: MonthlyResponse;
+  kpiCards: KpiMetricId[];
+  onUpdateKpiCards: (next: KpiMetricId[]) => void;
+  activeMetric?: KpiMetricId;
+  onSelectMetric?: (metric: KpiMetricId) => void;
+  onConfigureModel?: (modelName: string) => void;
+}) {
   const { monthly, totals } = data;
   const { sort, toggleSort } = useTableSort<MonthlySortKey>();
   const [from, setFrom] = useState("");
@@ -99,6 +128,17 @@ export function MonthlyView({ data }: { data: MonthlyResponse }) {
     () => filteredMonthly.flatMap((m) => m.modelBreakdowns),
     [filteredMonthly]
   );
+
+  const aggregatedBreakdowns = useMemo(
+    () => aggregateModelBreakdowns(allBreakdowns),
+    [allBreakdowns]
+  );
+
+  const activeMetricMeta = KPI_METRIC_META[activeMetric];
+  const monthlyAvgCostLine =
+    activeMetric === "avgCost" && filteredMonthly.length > 0
+      ? filteredMonthly.reduce((s, m) => s + m.totalCost, 0) / filteredMonthly.length
+      : null;
 
   const sortedMonthly = useMemo(
     () =>
@@ -145,11 +185,22 @@ export function MonthlyView({ data }: { data: MonthlyResponse }) {
         hasActiveFilter={hasActiveFilter}
       />
 
-      <OverviewStats totals={aggregatedTotals} label={statsLabel} />
+      <OverviewStats
+        totals={aggregatedTotals}
+        label={statsLabel}
+        itemCount={filteredMonthly.length}
+        unitLabel="month"
+        kpiCards={kpiCards}
+        onUpdateKpiCards={onUpdateKpiCards}
+        activeMetric={activeMetric}
+        onSelectMetric={onSelectMetric}
+      />
 
       <Card>
         <CardHeader className="pb-2 pt-4 px-4">
-          <CardTitle className="text-sm font-medium">Monthly Spend</CardTitle>
+          <CardTitle className="text-sm font-medium">
+            Monthly {activeMetricMeta.chartTitlePrefix}
+          </CardTitle>
         </CardHeader>
         <CardContent className="px-4 pb-4">
           {filteredMonthly.length === 0 ? (
@@ -159,7 +210,10 @@ export function MonthlyView({ data }: { data: MonthlyResponse }) {
           ) : (
             <ResponsiveContainer width="100%" height={220}>
               <BarChart
-                data={filteredMonthly.map((m) => ({ label: m.month, cost: m.totalCost }))}
+                data={filteredMonthly.map((m) => ({
+                  label: m.month,
+                  value: activeMetricMeta.getSeriesValue(m),
+                }))}
                 margin={{ top: 4, right: 8, left: 0, bottom: 0 }}
               >
                 <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
@@ -170,16 +224,25 @@ export function MonthlyView({ data }: { data: MonthlyResponse }) {
                   axisLine={false}
                 />
                 <YAxis
-                  tickFormatter={(v) => `$${v.toFixed(0)}`}
+                  domain={activeMetricMeta.unit === "percent" ? [0, 100] : [0, "auto"]}
+                  tickFormatter={(v) => activeMetricMeta.formatAxisTick(Number(v))}
                   tick={{ fontSize: 11, fill: "var(--muted-foreground)" }}
                   tickLine={false}
                   axisLine={false}
-                  width={44}
+                  width={56}
                 />
-                <Tooltip content={<CustomTooltip />} />
-                <Bar dataKey="cost" radius={[4, 4, 0, 0]}>
+                <Tooltip content={<CustomTooltip metric={activeMetric} />} />
+                {monthlyAvgCostLine !== null && (
+                  <ReferenceLine
+                    y={monthlyAvgCostLine}
+                    stroke={activeMetricMeta.accentColor}
+                    strokeDasharray="4 4"
+                    strokeOpacity={0.65}
+                  />
+                )}
+                <Bar dataKey="value" radius={[4, 4, 0, 0]}>
                   {filteredMonthly.map((m) => (
-                    <Cell key={m.month} fill="#3b82f6" />
+                    <Cell key={m.month} fill={activeMetricMeta.accentColor} />
                   ))}
                 </Bar>
               </BarChart>
@@ -188,10 +251,19 @@ export function MonthlyView({ data }: { data: MonthlyResponse }) {
         </CardContent>
       </Card>
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-        <ModelBreakdownChart breakdowns={aggregateModelBreakdowns(allBreakdowns)} />
-        <TokenBreakdown totals={aggregatedTotals} />
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 items-stretch">
+        <ModelBreakdownChart
+          breakdowns={aggregatedBreakdowns}
+          mode="cost"
+          onConfigureModel={onConfigureModel}
+        />
+        <ModelBreakdownChart
+          breakdowns={aggregatedBreakdowns}
+          mode="tokens"
+        />
       </div>
+
+      <TokenBreakdown totals={aggregatedTotals} />
 
       <Card>
         <CardHeader className="pb-2 pt-4 px-4">

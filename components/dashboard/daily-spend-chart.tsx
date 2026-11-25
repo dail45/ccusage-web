@@ -12,13 +12,14 @@ import {
   ReferenceLine,
 } from "recharts";
 import type { MouseHandlerDataParam } from "recharts";
-import { formatCost } from "@/lib/utils";
+import { KPI_METRIC_META, type KpiMetricId } from "@/lib/metrics";
 import type { DailyEntry } from "@/lib/types";
 
 interface DailySpendChartProps {
   allDays: DailyEntry[];
   visibleDays: DailyEntry[];
   selectedDate: string | null;
+  metric?: KpiMetricId;
   onSelectDate: (date: string) => void;
   onRangeCommit: (nextFrom: string, nextTo: string) => void;
 }
@@ -53,7 +54,7 @@ interface DragMeta {
 interface ChartPoint {
   idx: number;
   date: string;
-  cost: number;
+  value: number;
 }
 
 interface TooltipPayloadItem {
@@ -66,49 +67,65 @@ interface CustomTooltipProps {
   payload?: TooltipPayloadItem[];
   label?: string | number;
   hidden?: boolean;
+  metric: KpiMetricId;
 }
 
-function CustomTooltip({ active, payload, label, hidden }: CustomTooltipProps) {
+function CustomTooltip({ active, payload, label, hidden, metric }: CustomTooltipProps) {
   if (hidden || !active || !payload?.length) return null;
+  const meta = KPI_METRIC_META[metric];
   const value = payload[0]?.value ?? 0;
   const dateLabel = payload[0]?.payload?.date ?? String(label ?? "");
   return (
     <div className="rounded-lg border bg-card px-3 py-2 text-sm shadow-lg">
       <p className="font-medium font-mono text-xs">{dateLabel}</p>
-      <p className="text-primary font-mono">{formatCost(value)}</p>
+      <p className="font-mono font-medium" style={{ color: meta.accentColor }}>
+        {meta.formatTooltipValue(value)}
+      </p>
     </div>
   );
 }
 
-function sampleCostAt(days: DailyEntry[], x: number): number {
+function sampleMetricAt(days: DailyEntry[], x: number, getVal: (d: DailyEntry) => number): number {
   if (days.length === 0) return 0;
   const clamped = Math.max(0, Math.min(days.length - 1, x));
   const lo = Math.floor(clamped);
   const hi = Math.min(days.length - 1, Math.ceil(clamped));
-  if (lo === hi) return days[lo].totalCost;
+  if (lo === hi) return getVal(days[lo]);
   const t = clamped - lo;
-  return days[lo].totalCost * (1 - t) + days[hi].totalCost * t;
+  return getVal(days[lo]) * (1 - t) + getVal(days[hi]) * t;
 }
 
-function computeContinuousYMax(days: DailyEntry[], viewStart: number, viewEnd: number): number {
+function computeContinuousYMax(
+  days: DailyEntry[],
+  viewStart: number,
+  viewEnd: number,
+  metric: KpiMetricId
+): number {
+  const meta = KPI_METRIC_META[metric];
   if (days.length === 0) return 1;
-  let max = Math.max(sampleCostAt(days, viewStart), sampleCostAt(days, viewEnd));
+  let max = Math.max(
+    sampleMetricAt(days, viewStart, meta.getSeriesValue),
+    sampleMetricAt(days, viewEnd, meta.getSeriesValue)
+  );
   const lo = Math.max(0, Math.ceil(viewStart));
   const hi = Math.min(days.length - 1, Math.floor(viewEnd));
   for (let i = lo; i <= hi; i++) {
-    if (days[i].totalCost > max) {
-      max = days[i].totalCost;
-    }
+    const v = meta.getSeriesValue(days[i]);
+    if (v > max) max = v;
+  }
+  if (meta.unit === "percent") {
+    return max > 0 ? Math.min(100, max * 1.08) : 100;
   }
   return max > 0 ? max * 1.08 : 1;
 }
 
-const DEFAULT_PLOT_BOX: PlotBox = { left: 52, top: 4, width: 0, height: 186 };
+const DEFAULT_PLOT_BOX: PlotBox = { left: 56, top: 4, width: 0, height: 186 };
 
 export function DailySpendChart({
   allDays,
   visibleDays,
   selectedDate,
+  metric = "totalCost",
   onSelectDate,
   onRangeCommit,
 }: DailySpendChartProps) {
@@ -120,9 +137,11 @@ export function DailySpendChart({
   const [plotBox, setPlotBox] = useState<PlotBox>(DEFAULT_PLOT_BOX);
   const [drag, setDrag] = useState<DragState | null>(null);
 
+  const meta = KPI_METRIC_META[metric];
+
   const chartData = useMemo<ChartPoint[]>(
-    () => allDays.map((d, idx) => ({ idx, date: d.date, cost: d.totalCost })),
-    [allDays]
+    () => allDays.map((d, idx) => ({ idx, date: d.date, value: meta.getSeriesValue(d) })),
+    [allDays, meta]
   );
 
   // Measure actual Recharts cartesian grid bounds so edge handles sit directly on the plot edges.
@@ -165,7 +184,7 @@ export function DailySpendChart({
       cancelAnimationFrame(rafId);
       ro.disconnect();
     };
-  }, [visibleDays.length]);
+  }, [visibleDays.length, metric]);
 
   const { startIdx, endIdx } = useMemo(() => {
     if (allDays.length === 0 || visibleDays.length === 0) {
@@ -230,6 +249,11 @@ export function DailySpendChart({
     return idx === -1 ? null : idx;
   }, [allDays, selectedDate]);
 
+  const avgCostLine = useMemo(() => {
+    if (metric !== "avgCost" || visibleDays.length === 0) return null;
+    return visibleDays.reduce((sum, d) => sum + d.totalCost, 0) / visibleDays.length;
+  }, [metric, visibleDays]);
+
   function handleChartClick(
     state: MouseHandlerDataParam,
     event: React.MouseEvent<SVGGraphicsElement>
@@ -278,16 +302,16 @@ export function DailySpendChart({
     let lastTime = performance.now();
 
     const tick = (now: number) => {
-      const meta = dragMetaRef.current;
-      if (!meta || !meta.isExpanding || meta.overshootPx <= 0) {
+      const metaDrag = dragMetaRef.current;
+      if (!metaDrag || !metaDrag.isExpanding || metaDrag.overshootPx <= 0) {
         scrollRafRef.current = null;
         return;
       }
 
       const days = allDaysRef.current;
       if (
-        (meta.side === "left" && meta.viewStart <= 0) ||
-        (meta.side === "right" && meta.viewEnd >= days.length - 1)
+        (metaDrag.side === "left" && metaDrag.viewStart <= 0) ||
+        (metaDrag.side === "right" && metaDrag.viewEnd >= days.length - 1)
       ) {
         scrollRafRef.current = null;
         return;
@@ -296,26 +320,25 @@ export function DailySpendChart({
       const dtSec = Math.min((now - lastTime) / 1000, 0.05);
       lastTime = now;
 
-      // Smooth continuous days/sec velocity proportional to overshoot distance beyond the edge.
-      const normalized = Math.min(meta.overshootPx / 160, 2);
+      const normalized = Math.min(metaDrag.overshootPx / 160, 2);
       const daysPerSecond = 2.5 + 32 * normalized * normalized;
       const delta = daysPerSecond * dtSec;
 
-      if (meta.side === "left") {
-        meta.viewStart = Math.max(0, meta.viewStart - delta);
-        meta.previewIdx = Math.round(meta.viewStart);
+      if (metaDrag.side === "left") {
+        metaDrag.viewStart = Math.max(0, metaDrag.viewStart - delta);
+        metaDrag.previewIdx = Math.round(metaDrag.viewStart);
       } else {
-        meta.viewEnd = Math.min(days.length - 1, meta.viewEnd + delta);
-        meta.previewIdx = Math.round(meta.viewEnd);
+        metaDrag.viewEnd = Math.min(days.length - 1, metaDrag.viewEnd + delta);
+        metaDrag.previewIdx = Math.round(metaDrag.viewEnd);
       }
 
       setDrag((prev) =>
         prev
           ? {
               ...prev,
-              viewStart: meta.viewStart,
-              viewEnd: meta.viewEnd,
-              previewIdx: meta.previewIdx,
+              viewStart: metaDrag.viewStart,
+              viewEnd: metaDrag.viewEnd,
+              previewIdx: metaDrag.previewIdx,
             }
           : prev
       );
@@ -327,8 +350,8 @@ export function DailySpendChart({
   }
 
   const activeYMax = useMemo(
-    () => computeContinuousYMax(allDays, activeViewStart, activeViewEnd),
-    [allDays, activeViewStart, activeViewEnd]
+    () => computeContinuousYMax(allDays, activeViewStart, activeViewEnd, metric),
+    [allDays, activeViewStart, activeViewEnd, metric]
   );
 
   function startDrag(side: "left" | "right", e: React.PointerEvent<HTMLDivElement>) {
@@ -370,53 +393,53 @@ export function DailySpendChart({
   }
 
   function moveDrag(e: React.PointerEvent<HTMLDivElement>) {
-    const meta = dragMetaRef.current;
-    if (!meta) return;
+    const metaDrag = dragMetaRef.current;
+    if (!metaDrag) return;
 
     const days = allDaysRef.current;
-    const relX = e.clientX - meta.plotLeft;
-    let previewIdx = meta.previewIdx;
+    const relX = e.clientX - metaDrag.plotLeft;
+    let previewIdx = metaDrag.previewIdx;
     let visualRelX = 0;
     let overshootPx = 0;
     let isExpanding = false;
 
-    if (meta.side === "left") {
-      if (relX < 0 && meta.viewStart > 0) {
+    if (metaDrag.side === "left") {
+      if (relX < 0 && metaDrag.viewStart > 0) {
         overshootPx = -relX;
-        previewIdx = Math.round(meta.viewStart);
+        previewIdx = Math.round(metaDrag.viewStart);
         visualRelX = -Math.min(10, overshootPx * 0.12);
         isExpanding = true;
       } else {
-        const curStart = Math.max(0, Math.round(meta.viewStart));
-        const curEnd = Math.min(days.length - 1, Math.round(meta.viewEnd));
-        meta.viewStart = curStart;
-        const clampedRelX = Math.max(0, Math.min(meta.plotWidth, relX));
-        const ratio = meta.plotWidth > 0 ? clampedRelX / meta.plotWidth : 0;
+        const curStart = Math.max(0, Math.round(metaDrag.viewStart));
+        const curEnd = Math.min(days.length - 1, Math.round(metaDrag.viewEnd));
+        metaDrag.viewStart = curStart;
+        const clampedRelX = Math.max(0, Math.min(metaDrag.plotWidth, relX));
+        const ratio = metaDrag.plotWidth > 0 ? clampedRelX / metaDrag.plotWidth : 0;
         const span = curEnd - curStart;
         previewIdx = Math.min(curEnd, curStart + Math.round(ratio * span));
         visualRelX = clampedRelX;
       }
     } else {
-      if (relX > meta.plotWidth && meta.viewEnd < days.length - 1) {
-        overshootPx = relX - meta.plotWidth;
-        previewIdx = Math.round(meta.viewEnd);
-        visualRelX = meta.plotWidth + Math.min(10, overshootPx * 0.12);
+      if (relX > metaDrag.plotWidth && metaDrag.viewEnd < days.length - 1) {
+        overshootPx = relX - metaDrag.plotWidth;
+        previewIdx = Math.round(metaDrag.viewEnd);
+        visualRelX = metaDrag.plotWidth + Math.min(10, overshootPx * 0.12);
         isExpanding = true;
       } else {
-        const curStart = Math.max(0, Math.round(meta.viewStart));
-        const curEnd = Math.min(days.length - 1, Math.round(meta.viewEnd));
-        meta.viewEnd = curEnd;
-        const clampedRelX = Math.max(0, Math.min(meta.plotWidth, relX));
-        const ratio = meta.plotWidth > 0 ? clampedRelX / meta.plotWidth : 1;
+        const curStart = Math.max(0, Math.round(metaDrag.viewStart));
+        const curEnd = Math.min(days.length - 1, Math.round(metaDrag.viewEnd));
+        metaDrag.viewEnd = curEnd;
+        const clampedRelX = Math.max(0, Math.min(metaDrag.plotWidth, relX));
+        const ratio = metaDrag.plotWidth > 0 ? clampedRelX / metaDrag.plotWidth : 1;
         const span = curEnd - curStart;
         previewIdx = Math.max(curStart, curStart + Math.round(ratio * span));
         visualRelX = clampedRelX;
       }
     }
 
-    meta.previewIdx = previewIdx;
-    meta.overshootPx = overshootPx;
-    meta.isExpanding = isExpanding;
+    metaDrag.previewIdx = previewIdx;
+    metaDrag.overshootPx = overshootPx;
+    metaDrag.isExpanding = isExpanding;
 
     if (isExpanding) {
       startEdgeScroll();
@@ -425,18 +448,18 @@ export function DailySpendChart({
     }
 
     setDrag({
-      side: meta.side,
+      side: metaDrag.side,
       visualRelX,
       previewIdx,
       isExpanding,
-      viewStart: meta.viewStart,
-      viewEnd: meta.viewEnd,
+      viewStart: metaDrag.viewStart,
+      viewEnd: metaDrag.viewEnd,
     });
   }
 
   function finishDrag(e: React.PointerEvent<HTMLDivElement>) {
-    const meta = dragMetaRef.current;
-    if (!meta) return;
+    const metaDrag = dragMetaRef.current;
+    if (!metaDrag) return;
 
     stopEdgeScroll();
 
@@ -446,17 +469,17 @@ export function DailySpendChart({
 
     const days = allDaysRef.current;
     const nextStartIdx =
-      meta.side === "left"
-        ? meta.isExpanding
-          ? Math.max(0, Math.min(endIdx, Math.round(meta.viewStart)))
-          : meta.previewIdx
-        : Math.max(0, Math.round(meta.viewStart));
+      metaDrag.side === "left"
+        ? metaDrag.isExpanding
+          ? Math.max(0, Math.min(endIdx, Math.round(metaDrag.viewStart)))
+          : metaDrag.previewIdx
+        : Math.max(0, Math.round(metaDrag.viewStart));
     const nextEndIdx =
-      meta.side === "right"
-        ? meta.isExpanding
-          ? Math.min(days.length - 1, Math.max(startIdx, Math.round(meta.viewEnd)))
-          : meta.previewIdx
-        : Math.min(days.length - 1, Math.round(meta.viewEnd));
+      metaDrag.side === "right"
+        ? metaDrag.isExpanding
+          ? Math.min(days.length - 1, Math.max(startIdx, Math.round(metaDrag.viewEnd)))
+          : metaDrag.previewIdx
+        : Math.min(days.length - 1, Math.round(metaDrag.viewEnd));
 
     dragMetaRef.current = null;
     setDrag(null);
@@ -509,13 +532,13 @@ export function DailySpendChart({
           cx={cx}
           cy={cy}
           r={isSelected ? 5 : 3.5}
-          fill="#3b82f6"
+          fill={meta.accentColor}
           stroke="var(--background)"
           strokeWidth={2}
         />
       );
     },
-    [selectedDate, visibleDays.length, activeViewStart, activeViewEnd]
+    [selectedDate, visibleDays.length, activeViewStart, activeViewEnd, meta.accentColor]
   );
 
   if (visibleDays.length === 0) {
@@ -545,9 +568,9 @@ export function DailySpendChart({
             onClick={handleChartClick}
           >
             <defs>
-              <linearGradient id="costGradient" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.3} />
-                <stop offset="95%" stopColor="#3b82f6" stopOpacity={0} />
+              <linearGradient id="dailyMetricGradient" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="5%" stopColor={meta.accentColor} stopOpacity={0.3} />
+                <stop offset="95%" stopColor={meta.accentColor} stopOpacity={0} />
               </linearGradient>
             </defs>
             <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
@@ -565,33 +588,41 @@ export function DailySpendChart({
             <YAxis
               domain={[0, activeYMax]}
               allowDataOverflow
-              tickFormatter={(v) => `$${Number(v).toFixed(2)}`}
+              tickFormatter={(v) => meta.formatAxisTick(Number(v))}
               tick={{ fontSize: 11, fill: "var(--muted-foreground)" }}
               tickLine={false}
               axisLine={false}
-              width={52}
+              width={56}
             />
-            <Tooltip content={<CustomTooltip hidden={isDragging} />} />
+            <Tooltip content={<CustomTooltip hidden={isDragging} metric={metric} />} />
+            {avgCostLine !== null && (
+              <ReferenceLine
+                y={avgCostLine}
+                stroke={meta.accentColor}
+                strokeDasharray="4 4"
+                strokeOpacity={0.65}
+              />
+            )}
             {selectedIdx !== null &&
               selectedIdx >= activeViewStart &&
               selectedIdx <= activeViewEnd && (
                 <ReferenceLine
                   x={selectedIdx}
-                  stroke="#3b82f6"
+                  stroke={meta.accentColor}
                   strokeDasharray="3 3"
                   strokeWidth={1.5}
                 />
               )}
             <Area
               type="monotone"
-              dataKey="cost"
+              dataKey="value"
               baseValue={0}
-              stroke="#3b82f6"
+              stroke={meta.accentColor}
               strokeWidth={2}
-              fill="url(#costGradient)"
+              fill="url(#dailyMetricGradient)"
               isAnimationActive={false}
               dot={renderDot}
-              activeDot={{ r: 4, fill: "#3b82f6", stroke: "var(--background)", strokeWidth: 2 }}
+              activeDot={{ r: 4, fill: meta.accentColor, stroke: "var(--background)", strokeWidth: 2 }}
             />
           </AreaChart>
         </ResponsiveContainer>
