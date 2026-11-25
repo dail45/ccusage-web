@@ -56,6 +56,30 @@ ccusage-webui
 
 Your browser opens automatically at `http://localhost:4242`.
 
+## Desktop app (Electron)
+
+A desktop wrapper runs the same dashboard in its own window (no browser tab needed).
+
+```bash
+npm run electron:dev    # run the desktop app against a dev server
+npm run electron:dist   # build installers into dist-electron/
+```
+
+- The desktop build bundles `ccusage`, so no global install or `npx` is needed.
+- Builds are unsigned, so Windows SmartScreen / macOS Gatekeeper may show a warning on first launch.
+- The app uses a stable local port (4243 by default) so your saved preferences persist between launches.
+
+Download installers (Windows `.exe`, macOS Apple Silicon `.dmg`, Linux `.AppImage`) from [GitHub Releases](https://github.com/dail45/ccusage-web/releases/latest).
+
+### Releasing
+
+```bash
+npm version minor          # bumps package.json and creates the vX.Y.Z tag
+git push --follow-tags     # triggers .github/workflows/release.yml
+```
+
+The workflow builds installers on Windows, macOS and Linux runners and uploads them to a **draft** GitHub release — review it and click *Publish release*. If the `NPM_TOKEN` repository secret is set, the same tag also publishes the web version to npm.
+
 ## Development
 
 ```bash

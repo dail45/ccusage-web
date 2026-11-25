@@ -1,0 +1,104 @@
+name: Release
+
+# Push a tag matching the package.json version, e.g.:
+#   npm version minor && git push --follow-tags
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  check-version:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Tag must match package.json version
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          PKG="v$(node -p "require('./package.json').version")"
+          if [ "$PKG" != "$GITHUB_REF_NAME" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME does not match package.json version $PKG"
+            exit 1
+          fi
+
+  desktop:
+    needs: check-version
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            target: --win
+          - os: macos-latest
+            target: --mac
+          - os: ubuntu-latest
+            target: --linux
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Build Next.js standalone server
+        run: npm run electron:build-next
+
+      - name: Build installers and upload to draft GitHub release
+        # --publish always only when triggered by a tag; manual runs just build.
+        run: npx electron-builder ${{ matrix.target }} --publish ${{ startsWith(github.ref, 'refs/tags/') && 'always' || 'never' }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Unsigned builds: don't look for a signing identity on macOS.
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+
+      - name: Keep installers as workflow artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: installers-${{ matrix.os }}
+          path: |
+            dist-electron/*.exe
+            dist-electron/*.dmg
+            dist-electron/*.AppImage
+          if-no-files-found: warn
+
+  npm:
+    needs: check-version
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          registry-url: https://registry.npmjs.org
+
+      - run: npm ci
+
+      - name: Publish web version to npm (skipped if NPM_TOKEN secret is not set)
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          if [ -z "$NODE_AUTH_TOKEN" ]; then
+            echo "::notice::NPM_TOKEN secret is not set, skipping npm publish"
+            exit 0
+          fi
+          VERSION="$(node -p "require('./package.json').version")"
+          if npm view "ccusage-webui@$VERSION" version >/dev/null 2>&1; then
+            echo "::notice::ccusage-webui@$VERSION is already on npm, skipping"
+            exit 0
+          fi
+          # prepublishOnly runs typecheck + next build
+          npm publish

@@ -25,6 +25,8 @@
     "url": "https://github.com/dail45/ccusage-web/issues"
   },
   "license": "MIT",
+  "author": "dail45",
+  "main": "electron/main.cjs",
   "bin": {
     "ccusage-webui": "bin/ccusage-web.js"
   },
@@ -33,6 +35,7 @@
     ".next",
     "!.next/dev",
     "!.next/cache",
+    "!.next/standalone",
     "!.next/trace*",
     "public",
     "app",
@@ -50,10 +53,16 @@
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
     "prepublishOnly": "npm run typecheck && npm run build",
-    "screenshots": "node scripts/capture-screenshots.mjs"
+    "screenshots": "node scripts/capture-screenshots.mjs",
+    "electron:dev": "electron .",
+    "electron:build-next": "cross-env NEXT_OUTPUT=standalone next build && node scripts/prepare-electron.mjs",
+    "electron:start": "npm run electron:build-next && cross-env ELECTRON_SERVER=standalone electron .",
+    "electron:dist": "npm run electron:build-next && electron-builder",
+    "electron:dist:dir": "npm run electron:build-next && electron-builder --dir"
   },
   "dependencies": {
     "@base-ui/react": "^1.4.1",
+    "ccusage": "20.1.2",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "lucide-react": "^1.8.0",
@@ -70,6 +79,9 @@
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "cross-env": "10.1.0",
+    "electron": "45.5.0",
+    "electron-builder": "26.18.0",
     "eslint": "^9",
     "eslint-config-next": "16.2.4",
     "playwright": "^1.59.1",

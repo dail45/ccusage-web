@@ -57,3 +57,6 @@ desktop.ini
 # Local planning files
 MARKETING.md
 /npm_token.txt
+
+# electron
+/dist-electron/

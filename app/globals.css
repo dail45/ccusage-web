@@ -126,6 +126,42 @@
   }
   html {
     @apply font-sans;
+    color-scheme: light;
+  }
+  html.dark {
+    color-scheme: dark;
+  }
+}
+
+/* Themed scrollbars (page + scroll containers), matching the custom chart scrollbar */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track,
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  border-radius: 9999px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+  background-color: color-mix(in oklch, var(--foreground) 22%, transparent);
+}
+::-webkit-scrollbar-thumb:hover {
+  background-color: color-mix(in oklch, var(--foreground) 40%, transparent);
+}
+::-webkit-scrollbar-thumb:active {
+  background-color: color-mix(in oklch, var(--foreground) 55%, transparent);
+}
+::-webkit-scrollbar-button {
+  display: none;
+}
+/* Firefox (no ::-webkit-scrollbar support) */
+@supports not selector(::-webkit-scrollbar) {
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: color-mix(in oklch, var(--foreground) 25%, transparent) transparent;
   }
 }
 
