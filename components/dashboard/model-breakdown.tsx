@@ -135,7 +135,7 @@ function AngledModelTick({ x = 0, y = 0, payload }: AngledTickProps) {
   const value = String(payload?.value ?? "");
   const lines = wrapModelLabel(value);
   return (
-    <g transform={`translate(${x},${y + 4})`}>
+    <g transform={`translate(${x},${y + 4})`} data-tick-x={x}>
       <title>{value}</title>
       <text
         x={0}
@@ -257,6 +257,7 @@ export function ModelBreakdownChart({
   const scrollViewportRef = useRef<HTMLDivElement | null>(null);
   const trackRef = useRef<HTMLDivElement | null>(null);
   const thumbRef = useRef<HTMLDivElement | null>(null);
+  const tickNodesRef = useRef<Array<{ el: SVGGElement; x: number }>>([]);
   const scrollAnimRafRef = useRef<number | null>(null);
   const targetScrollRef = useRef(0);
   const floatScrollRef = useRef(0);
@@ -331,8 +332,29 @@ export function ModelBreakdownChart({
       : 0;
   const maxThumbLeft = Math.max(0, trackWidth - thumbWidth);
 
+  const updateTickVisibility = useCallback(
+    (scrollLeftVal: number) => {
+      if (viewportWidth <= 0) return;
+      const barHalf = 16;
+      const fadeSpan = 16;
+      const leftEdge = scrollLeftVal + Y_AXIS_WIDTH;
+      const rightEdge = scrollLeftVal + viewportWidth;
+      for (const { el, x } of tickNodesRef.current) {
+        const leftVisible = x + barHalf - leftEdge;
+        const rightVisible = rightEdge - (x - barHalf);
+        const opacity = Math.max(
+          0,
+          Math.min(1, Math.min(leftVisible / fadeSpan, rightVisible / fadeSpan))
+        );
+        el.style.opacity = opacity === 1 ? "" : opacity.toFixed(3);
+      }
+    },
+    [viewportWidth]
+  );
+
   const updateThumbDOM = useCallback(
     (scrollLeftVal: number) => {
+      updateTickVisibility(scrollLeftVal);
       const thumb = thumbRef.current;
       const track = trackRef.current;
       if (!thumb || !track) return;
@@ -343,7 +365,7 @@ export function ModelBreakdownChart({
       thumb.style.transform = `translate3d(${thumbLeft}px, 0, 0)`;
       track.setAttribute("aria-valuenow", String(Math.round(scrollLeftVal)));
     },
-    [maxScroll, maxThumbLeft]
+    [maxScroll, maxThumbLeft, updateTickVisibility]
   );
 
   const stopSmoothScroll = useCallback(() => {
@@ -369,8 +391,18 @@ export function ModelBreakdownChart({
   useEffect(() => {
     const vp = scrollViewportRef.current;
     if (!vp) return;
-    updateThumbDOM(vp.scrollLeft);
-  }, [updateThumbDOM, viewportWidth, chartWidth]);
+    const raf = requestAnimationFrame(() => {
+      const nodes = Array.from(vp.querySelectorAll<SVGGElement>("g[data-tick-x]"));
+      tickNodesRef.current = nodes
+        .map((el) => ({
+          el,
+          x: Number(el.getAttribute("data-tick-x")),
+        }))
+        .filter((item) => Number.isFinite(item.x));
+      updateThumbDOM(vp.scrollLeft);
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [updateThumbDOM, viewportWidth, chartWidth, chartData]);
 
   useEffect(() => () => stopSmoothScroll(), [stopSmoothScroll]);
 
