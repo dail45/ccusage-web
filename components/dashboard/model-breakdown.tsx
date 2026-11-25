@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import {
   BarChart,
   Bar,
@@ -8,7 +8,6 @@ import {
   YAxis,
   CartesianGrid,
   Tooltip,
-  ResponsiveContainer,
   Cell,
 } from "recharts";
 import { AlertTriangle } from "lucide-react";
@@ -185,15 +184,69 @@ function CustomTooltip({ active, payload, mode }: CustomTooltipProps) {
   );
 }
 
+interface ScrollableBarsProps {
+  chartWidth: number;
+  chartHeight: number;
+  xAxisHeight: number;
+  yAxisWidth: number;
+  yMax: number;
+  yTicks: number[];
+  chartData: ChartModelItem[];
+  mode: ModelBreakdownMode;
+}
+
+const ScrollableBars = memo(function ScrollableBars({
+  chartWidth,
+  chartHeight,
+  xAxisHeight,
+  yAxisWidth,
+  yMax,
+  yTicks,
+  chartData,
+  mode,
+}: ScrollableBarsProps) {
+  return (
+    <BarChart
+      width={chartWidth}
+      height={chartHeight}
+      data={chartData}
+      margin={{ top: 6, right: 8, left: yAxisWidth, bottom: 4 }}
+    >
+      <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
+      <XAxis
+        dataKey="name"
+        interval={0}
+        height={xAxisHeight}
+        padding={{ left: 6, right: 8 }}
+        tick={<AngledModelTick />}
+        tickLine={false}
+        axisLine={false}
+      />
+      <YAxis domain={[0, yMax]} ticks={yTicks} hide />
+      <Tooltip
+        content={<CustomTooltip mode={mode} />}
+        cursor={{ fill: "var(--muted)", opacity: 0.35 }}
+      />
+      <Bar dataKey="value" radius={[3, 3, 0, 0]} maxBarSize={36} isAnimationActive={false}>
+        {chartData.map((entry) => (
+          <Cell key={entry.modelName} fill={modelColor(entry.modelName)} />
+        ))}
+      </Bar>
+    </BarChart>
+  );
+});
+
 function normalizeWheelStep(rawDelta: number, deltaMode: number): number {
   const pxDelta =
     deltaMode === 1 ? rawDelta * 16 : deltaMode === 2 ? rawDelta * 120 : rawDelta;
-  const scaled = pxDelta * 0.42;
-  return Math.sign(scaled) * Math.min(Math.abs(scaled), 44);
+  const scaled = pxDelta * 0.36;
+  return Math.sign(scaled) * Math.min(Math.abs(scaled), 38);
 }
 
 const MIN_BAR_SLOT_PX = 46;
 const Y_AXIS_WIDTH = 56;
+const PLOT_HEIGHT = 160;
+const Y_AXIS_MASK_HEIGHT = PLOT_HEIGHT + 12;
 
 export function ModelBreakdownChart({
   breakdowns,
@@ -203,6 +256,7 @@ export function ModelBreakdownChart({
   const scrollViewportId = useId();
   const scrollViewportRef = useRef<HTMLDivElement | null>(null);
   const trackRef = useRef<HTMLDivElement | null>(null);
+  const thumbRef = useRef<HTMLDivElement | null>(null);
   const scrollAnimRafRef = useRef<number | null>(null);
   const targetScrollRef = useRef(0);
   const floatScrollRef = useRef(0);
@@ -213,12 +267,7 @@ export function ModelBreakdownChart({
     maxThumbLeft: number;
   } | null>(null);
 
-  const [scrollState, setScrollState] = useState({
-    scrollLeft: 0,
-    scrollWidth: 0,
-    clientWidth: 0,
-    trackWidth: 0,
-  });
+  const [viewportWidth, setViewportWidth] = useState(0);
   const [isDraggingThumb, setIsDraggingThumb] = useState(false);
 
   const aggregated = useMemo(() => {
@@ -262,21 +311,40 @@ export function ModelBreakdownChart({
     [wrappedLabels]
   );
 
-  const firstLabelLeftPad = useMemo(() => {
-    const firstLines = wrappedLabels[0] ?? [];
-    const firstMaxChars = firstLines.reduce((max, line) => Math.max(max, line.length), 0);
-    return Math.max(24, Math.ceil(firstMaxChars * 6 * 0.68 - 10));
-  }, [wrappedLabels]);
-
   const xAxisHeight = Math.max(76, Math.ceil(maxLineChars * 6 * 0.75 + (maxLines - 1) * 8 + 18));
-  const chartHeight = 160 + xAxisHeight;
-  const minPlotWidth =
-    chartData.length > 0 ? firstLabelLeftPad + 16 + chartData.length * MIN_BAR_SLOT_PX : 0;
+  const chartHeight = PLOT_HEIGHT + xAxisHeight + 10;
+  const minTotalWidth =
+    chartData.length > 0 ? Y_AXIS_WIDTH + 16 + chartData.length * MIN_BAR_SLOT_PX : 0;
+  const chartWidth = Math.max(viewportWidth, minTotalWidth);
 
   const { max: yMax, ticks: yTicks } = useMemo(() => {
     const maxValue = chartData.reduce((m, item) => Math.max(m, item.value), 0);
     return computeNiceScale(maxValue, 4);
   }, [chartData]);
+
+  const maxScroll = Math.max(0, chartWidth - viewportWidth);
+  const canScroll = viewportWidth > 0 && maxScroll > 1;
+  const trackWidth = Math.max(0, viewportWidth - Y_AXIS_WIDTH);
+  const thumbWidth =
+    canScroll && chartWidth > 0 && trackWidth > 0
+      ? Math.max(32, Math.round((viewportWidth / chartWidth) * trackWidth))
+      : 0;
+  const maxThumbLeft = Math.max(0, trackWidth - thumbWidth);
+
+  const updateThumbDOM = useCallback(
+    (scrollLeftVal: number) => {
+      const thumb = thumbRef.current;
+      const track = trackRef.current;
+      if (!thumb || !track) return;
+      const thumbLeft =
+        maxScroll > 0 && maxThumbLeft > 0
+          ? Math.max(0, Math.min(maxThumbLeft, (scrollLeftVal / maxScroll) * maxThumbLeft))
+          : 0;
+      thumb.style.transform = `translate3d(${thumbLeft}px, 0, 0)`;
+      track.setAttribute("aria-valuenow", String(Math.round(scrollLeftVal)));
+    },
+    [maxScroll, maxThumbLeft]
+  );
 
   const stopSmoothScroll = useCallback(() => {
     if (scrollAnimRafRef.current !== null) {
@@ -285,65 +353,36 @@ export function ModelBreakdownChart({
     }
   }, []);
 
-  const syncScrollMetrics = useCallback(() => {
+  useEffect(() => {
+    const vp = scrollViewportRef.current;
+    if (!vp) return;
+    const measure = () => {
+      const w = vp.clientWidth;
+      setViewportWidth((prev) => (prev === w ? prev : w));
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(vp);
+    return () => ro.disconnect();
+  }, [chartData.length]);
+
+  useEffect(() => {
+    const vp = scrollViewportRef.current;
+    if (!vp) return;
+    updateThumbDOM(vp.scrollLeft);
+  }, [updateThumbDOM, viewportWidth, chartWidth]);
+
+  useEffect(() => () => stopSmoothScroll(), [stopSmoothScroll]);
+
+  const handleViewportScroll = useCallback(() => {
     const vp = scrollViewportRef.current;
     if (!vp) return;
     if (scrollAnimRafRef.current === null) {
       floatScrollRef.current = vp.scrollLeft;
       targetScrollRef.current = vp.scrollLeft;
     }
-    const trackWidth = trackRef.current?.clientWidth ?? vp.clientWidth;
-    setScrollState((prev) => {
-      const next = {
-        scrollLeft: vp.scrollLeft,
-        scrollWidth: vp.scrollWidth,
-        clientWidth: vp.clientWidth,
-        trackWidth,
-      };
-      if (
-        prev.scrollLeft === next.scrollLeft &&
-        prev.scrollWidth === next.scrollWidth &&
-        prev.clientWidth === next.clientWidth &&
-        prev.trackWidth === next.trackWidth
-      ) {
-        return prev;
-      }
-      return next;
-    });
-  }, []);
-
-  useEffect(() => {
-    const vp = scrollViewportRef.current;
-    if (!vp) return;
-    const raf = requestAnimationFrame(syncScrollMetrics);
-    const ro = new ResizeObserver(syncScrollMetrics);
-    ro.observe(vp);
-    if (vp.firstElementChild) {
-      ro.observe(vp.firstElementChild);
-    }
-    if (trackRef.current) {
-      ro.observe(trackRef.current);
-    }
-    return () => {
-      cancelAnimationFrame(raf);
-      ro.disconnect();
-    };
-  }, [syncScrollMetrics, chartData.length, minPlotWidth]);
-
-  useEffect(() => () => stopSmoothScroll(), [stopSmoothScroll]);
-
-  const canScroll = scrollState.scrollWidth > scrollState.clientWidth + 1;
-  const maxScroll = Math.max(0, scrollState.scrollWidth - scrollState.clientWidth);
-  const trackWidth = Math.max(0, scrollState.trackWidth || scrollState.clientWidth);
-  const thumbWidth =
-    canScroll && scrollState.scrollWidth > 0 && trackWidth > 0
-      ? Math.max(32, Math.round((scrollState.clientWidth / scrollState.scrollWidth) * trackWidth))
-      : 0;
-  const maxThumbLeft = Math.max(0, trackWidth - thumbWidth);
-  const thumbLeft =
-    maxScroll > 0 && maxThumbLeft > 0
-      ? Math.min(maxThumbLeft, (scrollState.scrollLeft / maxScroll) * maxThumbLeft)
-      : 0;
+    updateThumbDOM(vp.scrollLeft);
+  }, [updateThumbDOM]);
 
   const animateScrollTo = useCallback(
     (nextTarget: number) => {
@@ -369,22 +408,23 @@ export function ModelBreakdownChart({
         const dt = Math.min((now - lastTime) / 1000, 0.05);
         lastTime = now;
         const diff = targetScrollRef.current - floatScrollRef.current;
-        if (Math.abs(diff) <= 0.35) {
+        if (Math.abs(diff) <= 0.3) {
           floatScrollRef.current = targetScrollRef.current;
           el.scrollLeft = targetScrollRef.current;
+          updateThumbDOM(targetScrollRef.current);
           scrollAnimRafRef.current = null;
           return;
         }
-        // Frame-rate independent exponential smoothing
-        const factor = 1 - Math.exp(-14 * dt);
+        const factor = 1 - Math.exp(-12 * dt);
         floatScrollRef.current += diff * factor;
         el.scrollLeft = floatScrollRef.current;
+        updateThumbDOM(floatScrollRef.current);
         scrollAnimRafRef.current = requestAnimationFrame(tick);
       };
 
       scrollAnimRafRef.current = requestAnimationFrame(tick);
     },
-    []
+    [updateThumbDOM]
   );
 
   function handleThumbPointerDown(e: React.PointerEvent<HTMLDivElement>) {
@@ -415,6 +455,7 @@ export function ModelBreakdownChart({
     vp.scrollLeft = nextScroll;
     floatScrollRef.current = nextScroll;
     targetScrollRef.current = nextScroll;
+    updateThumbDOM(nextScroll);
   }
 
   function handleThumbPointerUp(e: React.PointerEvent<HTMLDivElement>) {
@@ -494,12 +535,13 @@ export function ModelBreakdownChart({
           </div>
         ) : (
           <div>
-            <div className="relative flex items-stretch">
-              {/* Fixed Y-axis pinned on the left; scrolling models clip behind its right edge */}
+            <div className="relative">
+              {/* Fixed Y-axis overlay ONLY covering the plot height down to $0 / 0;
+                  angled model labels below $0 remain visible further left than the bars */}
               <div
                 aria-hidden="true"
-                className="relative z-10 shrink-0 bg-card select-none"
-                style={{ width: Y_AXIS_WIDTH, height: chartHeight }}
+                className="pointer-events-none absolute left-0 top-0 z-10 overflow-hidden bg-card select-none"
+                style={{ width: Y_AXIS_WIDTH, height: Y_AXIS_MASK_HEIGHT }}
               >
                 <BarChart
                   width={Y_AXIS_WIDTH}
@@ -527,44 +569,32 @@ export function ModelBreakdownChart({
                 </BarChart>
               </div>
 
-              {/* Horizontally scrollable bars & angled labels with native scrollbar hidden */}
+              {/* Scrollable plot spanning full width; bars hide behind Y-axis overlay while labels keep sliding left */}
               <div
                 id={scrollViewportId}
                 ref={scrollViewportRef}
-                onScroll={syncScrollMetrics}
+                onScroll={handleViewportScroll}
                 onWheel={handleViewportWheel}
-                className="min-w-0 flex-1 overflow-x-auto overflow-y-hidden [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
+                className="w-full overflow-x-auto overflow-y-hidden [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
               >
-                <div style={{ minWidth: minPlotWidth > 0 ? `${minPlotWidth}px` : undefined }}>
-                  <ResponsiveContainer width="100%" height={chartHeight}>
-                    <BarChart data={chartData} margin={{ top: 6, right: 8, left: 0, bottom: 4 }}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
-                      <XAxis
-                        dataKey="name"
-                        interval={0}
-                        height={xAxisHeight}
-                        padding={{ left: firstLabelLeftPad, right: 12 }}
-                        tick={<AngledModelTick />}
-                        tickLine={false}
-                        axisLine={false}
-                      />
-                      <YAxis domain={[0, yMax]} ticks={yTicks} hide />
-                      <Tooltip
-                        content={<CustomTooltip mode={mode} />}
-                        cursor={{ fill: "var(--muted)", opacity: 0.35 }}
-                      />
-                      <Bar dataKey="value" radius={[3, 3, 0, 0]} maxBarSize={36} isAnimationActive={false}>
-                        {chartData.map((entry) => (
-                          <Cell key={entry.modelName} fill={modelColor(entry.modelName)} />
-                        ))}
-                      </Bar>
-                    </BarChart>
-                  </ResponsiveContainer>
-                </div>
+                {viewportWidth > 0 ? (
+                  <ScrollableBars
+                    chartWidth={chartWidth}
+                    chartHeight={chartHeight}
+                    xAxisHeight={xAxisHeight}
+                    yAxisWidth={Y_AXIS_WIDTH}
+                    yMax={yMax}
+                    yTicks={yTicks}
+                    chartData={chartData}
+                    mode={mode}
+                  />
+                ) : (
+                  <div style={{ height: chartHeight }} />
+                )}
               </div>
             </div>
 
-            {/* Custom sleek horizontal scrollbar aligned under the scrollable plot area */}
+            {/* Custom sleek horizontal scrollbar aligned under the plot */}
             {canScroll && (
               <div className="mt-1 flex items-center" style={{ paddingLeft: Y_AXIS_WIDTH }}>
                 <div
@@ -576,23 +606,24 @@ export function ModelBreakdownChart({
                   aria-orientation="horizontal"
                   aria-valuemin={0}
                   aria-valuemax={Math.round(maxScroll)}
-                  aria-valuenow={Math.round(scrollState.scrollLeft)}
+                  aria-valuenow={0}
                   onPointerDown={handleTrackPointerDown}
                   onWheel={handleTrackWheel}
                   onKeyDown={handleScrollbarKeyDown}
-                  className="relative h-2.5 w-full cursor-pointer rounded-full bg-muted/60 p-0.5 select-none focus:outline-none focus:ring-1 focus:ring-ring"
+                  className="relative h-3 w-full cursor-pointer rounded-full bg-muted/60 p-0.5 select-none focus:outline-none focus:ring-1 focus:ring-ring"
                 >
                   <div
+                    ref={thumbRef}
                     onPointerDown={handleThumbPointerDown}
                     onPointerMove={handleThumbPointerMove}
                     onPointerUp={handleThumbPointerUp}
                     onPointerCancel={handleThumbPointerUp}
                     style={{
                       width: `${thumbWidth}px`,
-                      transform: `translateX(${thumbLeft}px)`,
+                      willChange: "transform",
                     }}
                     className={[
-                      "h-1.5 rounded-full transition-colors cursor-grab active:cursor-grabbing",
+                      "h-2 rounded-full transition-colors cursor-grab active:cursor-grabbing",
                       isDraggingThumb
                         ? "bg-foreground/70"
                         : "bg-muted-foreground/45 hover:bg-muted-foreground/70",
