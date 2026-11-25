@@ -15,10 +15,10 @@ export const ALL_KPI_METRICS: readonly KpiMetricId[] = [
   "totalCost",
   "totalTokens",
   "cacheReadTokens",
-  "cacheCreationTokens",
+  "cacheHitRate",
   "inputTokens",
   "outputTokens",
-  "cacheHitRate",
+  "cacheCreationTokens",
   "avgCost",
 ] as const;
 
@@ -26,7 +26,11 @@ export const DEFAULT_KPI_CARDS: KpiMetricId[] = [
   "totalCost",
   "totalTokens",
   "cacheReadTokens",
+  "cacheHitRate",
+  "inputTokens",
+  "outputTokens",
   "cacheCreationTokens",
+  "avgCost",
 ];
 
 export interface KpiMetricMeta {
