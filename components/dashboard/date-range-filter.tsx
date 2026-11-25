@@ -4,6 +4,12 @@ import { RotateCcw, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 
+interface RangePresetOption {
+  value: string;
+  label: string;
+  description?: string;
+}
+
 interface DateRangeFilterProps {
   type: "date" | "month";
   from: string;
@@ -16,6 +22,9 @@ interface DateRangeFilterProps {
   hasActiveFilter: boolean;
   selectedLabel?: string | null;
   onClearSelected?: () => void;
+  presets?: readonly RangePresetOption[];
+  activePreset?: string | null;
+  onSelectPreset?: (value: string) => void;
 }
 
 export function DateRangeFilter({
@@ -30,10 +39,37 @@ export function DateRangeFilter({
   hasActiveFilter,
   selectedLabel,
   onClearSelected,
+  presets,
+  activePreset,
+  onSelectPreset,
 }: DateRangeFilterProps) {
   return (
     <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border bg-card px-3 py-2">
       <div className="flex flex-wrap items-center gap-2 sm:gap-3">
+        {presets && presets.length > 0 && onSelectPreset && (
+          <div className="flex items-center gap-1 pr-1 sm:border-r sm:border-border sm:pr-3" role="group" aria-label="Quick date range">
+            {presets.map((p) => {
+              const isActive = activePreset === p.value;
+              return (
+                <button
+                  key={p.value}
+                  type="button"
+                  aria-pressed={isActive}
+                  title={p.description ?? p.label}
+                  onClick={() => onSelectPreset(p.value)}
+                  className={[
+                    "px-2.5 py-1 rounded text-xs font-medium transition-colors",
+                    isActive
+                      ? "bg-foreground text-background"
+                      : "bg-muted text-muted-foreground hover:bg-muted/80 hover:text-foreground",
+                  ].join(" ")}
+                >
+                  {p.label}
+                </button>
+              );
+            })}
+          </div>
+        )}
         <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
           <span>From</span>
           <input

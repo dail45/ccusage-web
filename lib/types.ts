@@ -5,6 +5,7 @@ export interface ModelBreakdown {
   cacheCreationTokens: number;
   cacheReadTokens: number;
   cost: number;
+  missingPricing?: boolean;
 }
 
 export interface DailyEntry {
@@ -109,3 +110,52 @@ export interface BlocksResponse {
 }
 
 export type ViewType = "daily" | "monthly" | "weekly" | "session" | "blocks";
+
+export type DailyRangePreset = "all" | "1d" | "7d" | "14d" | "30d";
+
+export type CcusageCostMode = "auto" | "calculate" | "display";
+
+export interface PricingOverride {
+  inputCostPerToken?: number;
+  outputCostPerToken?: number;
+  cacheCreationInputTokenCost?: number;
+  cacheReadInputTokenCost?: number;
+  inputCostPerTokenAbove200kTokens?: number;
+  outputCostPerTokenAbove200kTokens?: number;
+  cacheCreationInputTokenCostAbove200kTokens?: number;
+  cacheCreationInputTokenCostAbove1hr?: number;
+  cacheReadInputTokenCostAbove200kTokens?: number;
+  maxInputTokens?: number;
+  fastMultiplier?: number;
+  flexMultiplier?: number;
+}
+
+export interface CcusageDefaults {
+  timezone?: string;
+  mode?: CcusageCostMode;
+  offline?: boolean;
+  startOfWeek?: string;
+  pricingOverrides?: Record<string, PricingOverride>;
+  [key: string]: unknown;
+}
+
+export interface CcusageConfig {
+  $schema?: string;
+  defaults?: CcusageDefaults;
+  [key: string]: unknown;
+}
+
+export interface CatalogModelPricing {
+  id: string;
+  provider: string;
+  source: "models.dev" | "litellm" | "builtin";
+  pricing: PricingOverride;
+}
+
+export interface SettingsResponse {
+  configPath: string;
+  configExists: boolean;
+  config: CcusageConfig;
+  rawJson: string;
+  catalogModels: CatalogModelPricing[];
+}

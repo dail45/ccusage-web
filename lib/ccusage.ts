@@ -1,7 +1,8 @@
 import { spawnSync } from "child_process";
+import { existsSync } from "fs";
+import { resolveCcusageConfigPath } from "./ccusage-config";
 
-const COMMANDS = ["daily", "monthly", "weekly", "session", "blocks"] as const;
-type Command = (typeof COMMANDS)[number];
+type Command = "daily" | "monthly" | "weekly" | "session" | "blocks";
 
 function resolveCcusage(): { bin: string; leadArgs: string[] } {
   const probe = spawnSync("ccusage", ["--version"], { stdio: "ignore" });
@@ -11,8 +12,14 @@ function resolveCcusage(): { bin: string; leadArgs: string[] } {
 
 export function runCcusage(command: Command, extraArgs: string[] = []): unknown {
   const { bin, leadArgs } = resolveCcusage();
+  const configPath = resolveCcusageConfigPath();
+  const configArgs =
+    !extraArgs.includes("--config") && existsSync(configPath)
+      ? ["--config", configPath]
+      : [];
+
   // Use spawnSync (no shell) so args are never interpreted as shell tokens
-  const result = spawnSync(bin, [...leadArgs, command, "--json", ...extraArgs], {
+  const result = spawnSync(bin, [...leadArgs, command, "--json", ...configArgs, ...extraArgs], {
     timeout: 60_000,
     maxBuffer: 50 * 1024 * 1024,
     env: { ...process.env, NO_COLOR: "1" },

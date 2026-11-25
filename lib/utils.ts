@@ -37,6 +37,9 @@ export function aggregateModelBreakdowns(breakdowns: ModelBreakdown[]): ModelBre
       existing.cacheCreationTokens += b.cacheCreationTokens;
       existing.cacheReadTokens += b.cacheReadTokens;
       existing.cost += b.cost;
+      if (b.missingPricing) {
+        existing.missingPricing = true;
+      }
     } else {
       map.set(b.modelName, { ...b });
     }
