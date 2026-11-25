@@ -1,6 +1,6 @@
 {
   "name": "ccusage-webui",
-  "version": "0.1.4",
+  "version": "0.2.0",
   "description": "Local web dashboard for monitoring Claude Code and AI agent token usage and costs",
   "keywords": [
     "claude",
