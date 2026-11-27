@@ -9,6 +9,10 @@ import { DailyView } from "@/components/dashboard/daily-view";
 import { MonthlyView } from "@/components/dashboard/monthly-view";
 import { SessionView } from "@/components/dashboard/session-view";
 import { BlocksView } from "@/components/dashboard/blocks-view";
+import {
+  AppVersionPill,
+  DesktopUpdateHeaderBadge,
+} from "@/components/dashboard/desktop-updater";
 import { SettingsView } from "@/components/dashboard/settings-view";
 import {
   applyThemeClass,
@@ -194,6 +198,16 @@ export default function Home() {
     [preferences]
   );
 
+  const handleUpdateExcludedModels = useCallback(
+    (nextExcluded: string[]) => {
+      writePreferences({
+        ...preferences,
+        excludedModels: nextExcluded,
+      });
+    },
+    [preferences]
+  );
+
   const handleToggleTheme = useCallback(() => {
     writePreferences({
       ...preferences,
@@ -274,6 +288,8 @@ export default function Home() {
             defaultRange={preferences.defaultDailyRange}
             kpiCards={preferences.kpiCards}
             onUpdateKpiCards={handleUpdateKpiCards}
+            excludedModels={preferences.excludedModels}
+            onChangeExcludedModels={handleUpdateExcludedModels}
             activeMetric={effectiveMetric}
             onSelectMetric={setActiveMetric}
             onConfigureModel={handleConfigureModel}
@@ -285,6 +301,8 @@ export default function Home() {
             data={data as MonthlyResponse}
             kpiCards={preferences.kpiCards}
             onUpdateKpiCards={handleUpdateKpiCards}
+            excludedModels={preferences.excludedModels}
+            onChangeExcludedModels={handleUpdateExcludedModels}
             activeMetric={effectiveMetric}
             onSelectMetric={setActiveMetric}
             onConfigureModel={handleConfigureModel}
@@ -323,10 +341,26 @@ export default function Home() {
       <header className="border-b border-border sticky top-0 z-10 bg-background/95 backdrop-blur">
         <div className="mx-auto max-w-6xl px-4 py-3 flex flex-wrap items-center justify-between gap-x-4 gap-y-2.5 lg:grid lg:grid-cols-[1fr_auto_1fr] lg:items-center">
           <div className="flex items-center gap-2.5 shrink-0 lg:justify-self-start">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src="/icon.svg"
+              alt=""
+              width={24}
+              height={24}
+              className="h-6 w-6 shrink-0 rounded-md"
+            />
             <span className="text-lg font-semibold tracking-tight">ccusage</span>
             <Badge variant="secondary" className="text-xs font-normal">
               local dashboard
             </Badge>
+            <AppVersionPill
+              onOpenSettings={() => {
+                if (activeView !== "settings") {
+                  setLastUsageView(activeView);
+                  setActiveView("settings");
+                }
+              }}
+            />
           </div>
 
           <nav
@@ -347,6 +381,14 @@ export default function Home() {
           </nav>
 
           <div className="flex items-center gap-3 shrink-0 lg:justify-self-end">
+            <DesktopUpdateHeaderBadge
+              onOpenSettings={() => {
+                if (activeView !== "settings") {
+                  setLastUsageView(activeView);
+                  setActiveView("settings");
+                }
+              }}
+            />
             {loading && (
               <span className="text-xs text-muted-foreground animate-pulse">Refreshing…</span>
             )}

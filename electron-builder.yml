@@ -9,8 +9,26 @@ directories:
 # extraResources below.
 files:
   - electron/**/*
+  - build/icon.ico
+  - build/icon.png
   - package.json
   - "!node_modules/**/*"
+  - node_modules/electron-updater/**/*
+  - node_modules/builder-util-runtime/**/*
+  - node_modules/fs-extra/**/*
+  - node_modules/graceful-fs/**/*
+  - node_modules/jsonfile/**/*
+  - node_modules/universalify/**/*
+  - node_modules/js-yaml/**/*
+  - node_modules/argparse/**/*
+  - node_modules/lazy-val/**/*
+  - node_modules/lodash.escaperegexp/**/*
+  - node_modules/lodash.isequal/**/*
+  - node_modules/semver/**/*
+  - node_modules/tiny-typed-emitter/**/*
+  - node_modules/debug/**/*
+  - node_modules/ms/**/*
+  - node_modules/sax/**/*
 
 # NOTE: electron-builder always drops the root "node_modules" directory of an
 # extraResources "from" folder, so node_modules is copied by its own entry.
@@ -28,6 +46,7 @@ npmRebuild: false
 asar: true
 
 win:
+  icon: build/icon.ico
   target:
     - target: nsis
       arch: [x64]
@@ -41,12 +60,14 @@ portable:
   artifactName: ${productName}-Portable-${version}.${ext}
 
 mac:
+  icon: build/icon.png
   # The bundled ccusage binary is per-arch, so each arch is built on its own
   # runner (arm64 on macos-latest, x64 on macos-15-intel); arch comes from CLI.
   target: dmg
   artifactName: ${productName}-${version}-${arch}.${ext}
   category: public.app-category.developer-tools
 linux:
+  icon: build/icon.png
   target: AppImage
   category: Development
 

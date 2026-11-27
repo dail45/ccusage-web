@@ -29,6 +29,7 @@ import {
   type DashboardPreferences,
   type ThemePreference,
 } from "@/lib/preferences";
+import { DesktopUpdateSettingsCard } from "./desktop-updater";
 import { formatTokens, modelColor } from "@/lib/utils";
 import type {
   CatalogModelPricing,
@@ -627,6 +628,8 @@ export function SettingsView({
       </div>
 
       {/* 1. Dashboard UI Preferences */}
+      <DesktopUpdateSettingsCard />
+
       <Card>
         <CardHeader className="pb-2 pt-4 px-4">
           <CardTitle className="text-sm font-medium">Dashboard Preferences</CardTitle>

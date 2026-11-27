@@ -1,6 +1,7 @@
 "use strict";
 
-const { app, BrowserWindow, dialog, shell, utilityProcess } = require("electron");
+const { app, BrowserWindow, dialog, ipcMain, shell, utilityProcess } = require("electron");
+const { autoUpdater } = require("electron-updater");
 const { spawn, spawnSync } = require("child_process");
 const fs = require("fs");
 const http = require("http");
@@ -164,6 +165,10 @@ function startDevServer(port) {
 }
 
 function killServer() {
+  if (updateCheckTimer) {
+    clearInterval(updateCheckTimer);
+    updateCheckTimer = null;
+  }
   const proc = serverProc;
   if (!proc) return;
   serverProc = null;
@@ -242,6 +247,12 @@ function scheduleSaveBounds() {
   saveTimer = setTimeout(saveBounds, 500);
 }
 
+function resolveWindowIcon() {
+  const filename = process.platform === "win32" ? "icon.ico" : "icon.png";
+  const candidate = path.join(REPO_ROOT, "build", filename);
+  return fs.existsSync(candidate) ? candidate : undefined;
+}
+
 function createWindow() {
   const state = readState();
   const b = state.bounds;
@@ -250,6 +261,7 @@ function createWindow() {
     [b.x, b.y, b.width, b.height].every((n) => Number.isFinite(n)) &&
     b.width > 0 &&
     b.height > 0;
+  const windowIcon = resolveWindowIcon();
 
   mainWindow = new BrowserWindow({
     width: hasBounds ? b.width : 1440,
@@ -261,7 +273,9 @@ function createWindow() {
     backgroundColor: "#09090b",
     autoHideMenuBar: true,
     title: "ccusage",
+    ...(windowIcon ? { icon: windowIcon } : {}),
     webPreferences: {
+      preload: path.join(__dirname, "preload.cjs"),
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
@@ -295,6 +309,151 @@ function createWindow() {
   return mainWindow;
 }
 
+// ----------------------------------------------------------------- auto-update
+
+const RELEASES_URL = "https://github.com/dail45/ccusage-web/releases";
+const IS_PORTABLE = process.platform === "win32" && Boolean(process.env.PORTABLE_EXECUTABLE_DIR);
+const CAN_AUTO_INSTALL = app.isPackaged && !IS_PORTABLE && process.platform !== "darwin";
+const UPDATE_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000;
+
+let updateState = {
+  currentVersion: app.getVersion(),
+  canAutoInstall: CAN_AUTO_INSTALL,
+  isPackaged: app.isPackaged,
+  status: "idle",
+  version: null,
+  releaseUrl: RELEASES_URL,
+  progress: null,
+  error: null,
+};
+let updateCheckInFlight = false;
+let updateCheckManual = false;
+let updateCheckTimer = null;
+
+function setUpdateState(patch) {
+  updateState = { ...updateState, ...patch };
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send("updater:state", updateState);
+  }
+}
+
+async function runUpdateCheck(manual = false) {
+  if (!app.isPackaged) {
+    if (manual) {
+      setUpdateState({ status: "unsupported", error: null, progress: null });
+    }
+    return updateState;
+  }
+  if (updateCheckInFlight) return updateState;
+  updateCheckInFlight = true;
+  updateCheckManual = manual;
+  try {
+    setUpdateState({ status: "checking", error: null, progress: null });
+    await autoUpdater.checkForUpdates();
+  } catch (err) {
+    const message = err && err.message ? err.message : String(err);
+    console.error("[updater] check failed:", message);
+    if (manual) {
+      setUpdateState({ status: "error", error: message, progress: null });
+    } else {
+      setUpdateState({ status: "idle", error: null, progress: null });
+    }
+  } finally {
+    updateCheckInFlight = false;
+    updateCheckManual = false;
+  }
+  return updateState;
+}
+
+function setupAutoUpdater() {
+  const appUpdateCfg = path.join(process.resourcesPath || "", "app-update.yml");
+  if (app.isPackaged && !fs.existsSync(appUpdateCfg)) {
+    autoUpdater.setFeedURL({
+      provider: "github",
+      owner: "dail45",
+      repo: "ccusage-web",
+    });
+  }
+  autoUpdater.autoDownload = CAN_AUTO_INSTALL;
+  autoUpdater.autoInstallOnAppQuit = CAN_AUTO_INSTALL;
+  autoUpdater.allowPrerelease = false;
+
+  autoUpdater.on("checking-for-update", () => {
+    setUpdateState({ status: "checking", error: null });
+  });
+
+  autoUpdater.on("update-available", (info) => {
+    const version = info && info.version ? info.version : null;
+    setUpdateState({
+      status: "available",
+      version,
+      releaseUrl: version ? `${RELEASES_URL}/tag/v${version}` : `${RELEASES_URL}/latest`,
+      progress: null,
+      error: null,
+    });
+  });
+
+  autoUpdater.on("update-not-available", () => {
+    setUpdateState({
+      status: "not-available",
+      version: null,
+      progress: null,
+      error: null,
+    });
+  });
+
+  autoUpdater.on("download-progress", (p) => {
+    setUpdateState({
+      status: "downloading",
+      progress: typeof p?.percent === "number" ? Math.round(p.percent) : null,
+      error: null,
+    });
+  });
+
+  autoUpdater.on("update-downloaded", (info) => {
+    const version = info && info.version ? info.version : updateState.version;
+    setUpdateState({
+      status: "downloaded",
+      version,
+      releaseUrl: version ? `${RELEASES_URL}/tag/v${version}` : `${RELEASES_URL}/latest`,
+      progress: 100,
+      error: null,
+    });
+  });
+
+  autoUpdater.on("error", (err) => {
+    const message = err && err.message ? err.message : String(err);
+    console.error("[updater] error:", message);
+    if (updateCheckManual || updateState.status === "downloading") {
+      setUpdateState({ status: "error", error: message, progress: null });
+    } else {
+      setUpdateState({ status: "idle", error: null, progress: null });
+    }
+  });
+
+  ipcMain.handle("updater:get-state", () => updateState);
+  ipcMain.handle("updater:check", () => runUpdateCheck(true));
+  ipcMain.handle("updater:download", async () => {
+    if (!app.isPackaged) return;
+    if (CAN_AUTO_INSTALL) {
+      await autoUpdater.downloadUpdate();
+    } else {
+      openExternalIfWeb(updateState.releaseUrl || `${RELEASES_URL}/latest`);
+    }
+  });
+  ipcMain.handle("updater:install", () => {
+    if (!CAN_AUTO_INSTALL) {
+      openExternalIfWeb(updateState.releaseUrl || `${RELEASES_URL}/latest`);
+      return;
+    }
+    killServer();
+    autoUpdater.quitAndInstall(false, true);
+  });
+  ipcMain.handle("updater:open-releases", () => {
+    openExternalIfWeb(updateState.releaseUrl || RELEASES_URL);
+  });
+}
+
 // ----------------------------------------------------------------- lifecycle
 
 function fatal(err) {
@@ -307,6 +466,7 @@ function fatal(err) {
 
 async function main() {
   try {
+    setupAutoUpdater();
     serverPort = await pickPort();
     if (USE_STANDALONE) startStandaloneServer(serverPort);
     else startDevServer(serverPort);
@@ -316,6 +476,15 @@ async function main() {
     await waitForServer(url, USE_STANDALONE ? 30_000 : 60_000);
     if (win.isDestroyed()) return;
     await win.loadURL(url);
+
+    if (app.isPackaged) {
+      setTimeout(() => {
+        runUpdateCheck(false);
+      }, 5000);
+      updateCheckTimer = setInterval(() => {
+        runUpdateCheck(false);
+      }, UPDATE_CHECK_INTERVAL_MS);
+    }
   } catch (err) {
     fatal(err);
   }
