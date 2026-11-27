@@ -1,0 +1,16 @@
+<svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="ccBg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#171722" />
+      <stop offset="100%" stop-color="#0b0b10" />
+    </linearGradient>
+  </defs>
+  <rect x="2" y="2" width="60" height="60" rx="15" fill="url(#ccBg)" stroke="#2a2a38" stroke-width="1.75" />
+  <!-- Token distribution ring -->
+  <path d="M 36.26 11.95 A 20.5 20.5 0 0 1 47.24 45.72" fill="none" stroke="#10b981" stroke-width="5.8" stroke-linecap="round" />
+  <path d="M 39.01 51.26 A 20.5 20.5 0 0 1 12.99 39.68" fill="none" stroke="#3b82f6" stroke-width="5.8" stroke-linecap="round" />
+  <path d="M 11.61 29.86 A 20.5 20.5 0 0 1 26.35 12.29" fill="none" stroke="#8b5cf6" stroke-width="5.8" stroke-linecap="round" />
+  <!-- Crisp, wide-open 'cc' monogram -->
+  <path d="M 28.70 27.63 A 4.6 5.4 0 1 0 28.70 36.37" fill="none" stroke="#f4f4f5" stroke-width="2.6" stroke-linecap="round" />
+  <path d="M 42.30 27.63 A 4.6 5.4 0 1 0 42.30 36.37" fill="none" stroke="#f4f4f5" stroke-width="2.6" stroke-linecap="round" />
+</svg>

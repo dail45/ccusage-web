@@ -15,6 +15,12 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "ccusage — Claude Usage Dashboard",
   description: "Local dashboard for monitoring Claude Code token usage and costs",
+  icons: {
+    icon: [
+      { url: "/favicon.ico", sizes: "any" },
+      { url: "/icon.svg", type: "image/svg+xml" },
+    ],
+  },
 };
 
 const THEME_INIT_SCRIPT = `(function(){try{var raw=localStorage.getItem("ccusage-web:preferences");var theme="dark";if(raw){var parsed=JSON.parse(raw);if(parsed&&typeof parsed.theme==="string"){theme=parsed.theme;}}var isDark=theme==="dark"||(theme==="system"&&window.matchMedia("(prefers-color-scheme: dark)").matches);document.documentElement.classList.toggle("dark",isDark);}catch(e){document.documentElement.classList.add("dark");}})();`;
