@@ -71,10 +71,10 @@ linux:
   target: AppImage
   category: Development
 
-# Installers are uploaded to a *draft* GitHub release for the tag (see
-# .github/workflows/release.yml). Review it and click "Publish release".
+# Installers are uploaded and published directly to the GitHub release for the tag
+# (see .github/workflows/release.yml).
 publish:
   provider: github
   owner: dail45
   repo: ccusage-web
-  releaseType: draft
+  releaseType: release
