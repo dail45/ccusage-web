@@ -23,6 +23,7 @@ import {
 import { KPI_METRIC_META, type KpiMetricId } from "@/lib/metrics";
 import { DateRangeFilter } from "./date-range-filter";
 import { ModelBreakdownChart } from "./model-breakdown";
+import { ModelFilter } from "./model-filter";
 import { TokenBreakdown } from "./token-breakdown";
 import { OverviewStats } from "./overview-stats";
 import {
@@ -34,6 +35,7 @@ import {
 } from "./sortable-head";
 import {
   aggregateModelBreakdowns,
+  filterEntryByModels,
   formatCost,
   formatTokens,
   modelColor,
@@ -83,6 +85,8 @@ export function MonthlyView({
   data,
   kpiCards,
   onUpdateKpiCards,
+  excludedModels = [],
+  onChangeExcludedModels,
   activeMetric = "totalCost",
   onSelectMetric,
   onConfigureModel,
@@ -90,6 +94,8 @@ export function MonthlyView({
   data: MonthlyResponse;
   kpiCards: KpiMetricId[];
   onUpdateKpiCards: (next: KpiMetricId[]) => void;
+  excludedModels?: string[];
+  onChangeExcludedModels?: (next: string[]) => void;
   activeMetric?: KpiMetricId;
   onSelectMetric?: (metric: KpiMetricId) => void;
   onConfigureModel?: (modelName: string) => void;
@@ -117,13 +123,6 @@ export function MonthlyView({
     [chronologicalMonths, from, to]
   );
 
-  const hasActiveFilter = Boolean(from || to);
-
-  const aggregatedTotals = useMemo(
-    () => (!hasActiveFilter && totals ? totals : sumUsageTotals(filteredMonthly)),
-    [hasActiveFilter, totals, filteredMonthly]
-  );
-
   const allBreakdowns = useMemo(
     () => filteredMonthly.flatMap((m) => m.modelBreakdowns),
     [filteredMonthly]
@@ -134,18 +133,56 @@ export function MonthlyView({
     [allBreakdowns]
   );
 
+  const excludedSet = useMemo(() => new Set(excludedModels), [excludedModels]);
+
+  const hasModelFilter = useMemo(
+    () => excludedSet.size > 0 && aggregatedBreakdowns.some((b) => excludedSet.has(b.modelName)),
+    [aggregatedBreakdowns, excludedSet]
+  );
+
+  const modelFilteredMonthly = useMemo(
+    () =>
+      excludedSet.size === 0
+        ? filteredMonthly
+        : filteredMonthly.map((m) => filterEntryByModels(m, excludedSet)),
+    [filteredMonthly, excludedSet]
+  );
+
+  const hasDateFilter = Boolean(from || to);
+  const hasDataFilter = hasDateFilter || hasModelFilter;
+
+  const aggregatedTotals = useMemo(
+    () => (!hasDataFilter && totals ? totals : sumUsageTotals(modelFilteredMonthly)),
+    [hasDataFilter, totals, modelFilteredMonthly]
+  );
+
+  const filteredBreakdowns = useMemo(
+    () => aggregatedBreakdowns.filter((b) => !excludedSet.has(b.modelName)),
+    [aggregatedBreakdowns, excludedSet]
+  );
+
   const activeMetricMeta = KPI_METRIC_META[activeMetric];
   const monthlyAvgCostLine =
-    activeMetric === "avgCost" && filteredMonthly.length > 0
-      ? filteredMonthly.reduce((s, m) => s + m.totalCost, 0) / filteredMonthly.length
+    activeMetric === "avgCost" && modelFilteredMonthly.length > 0
+      ? modelFilteredMonthly.reduce((s, m) => s + m.totalCost, 0) / modelFilteredMonthly.length
       : null;
+
+  const tableRows = useMemo(
+    () =>
+      hasModelFilter
+        ? modelFilteredMonthly.filter(
+            (m) => m.modelBreakdowns.length > 0 || m.modelsUsed.length > 0
+          )
+        : modelFilteredMonthly,
+    [hasModelFilter, modelFilteredMonthly]
+  );
 
   const sortedMonthly = useMemo(
     () =>
-      sortRows(filteredMonthly, sort, MONTHLY_SORT_GETTERS, (a, b) =>
+      sortRows(tableRows, sort, MONTHLY_SORT_GETTERS, (a, b) =>
         compareTimestampsDesc(a.month, b.month)
       ),
-    [filteredMonthly, sort]
+    [tableRows, sort]
   );
 
   function handleFromChange(nextFrom: string) {
@@ -167,9 +204,14 @@ export function MonthlyView({
     setTo("");
   }
 
-  const statsLabel = hasActiveFilter
-    ? `${filteredMonthly.length} months (${from || minMonth || "…"} – ${to || maxMonth || "…"})`
-    : `${monthly.length} months shown`;
+  const modelSuffix = hasModelFilter
+    ? ` · ${filteredBreakdowns.length}/${aggregatedBreakdowns.length} models`
+    : "";
+
+  const statsLabel =
+    (hasDateFilter
+      ? `${filteredMonthly.length} months (${from || minMonth || "…"} – ${to || maxMonth || "…"})`
+      : `${monthly.length} months shown`) + modelSuffix;
 
   return (
     <div className="space-y-4">
@@ -182,13 +224,13 @@ export function MonthlyView({
         onFromChange={handleFromChange}
         onToChange={handleToChange}
         onReset={handleReset}
-        hasActiveFilter={hasActiveFilter}
+        hasActiveFilter={hasDateFilter}
       />
 
       <OverviewStats
         totals={aggregatedTotals}
         label={statsLabel}
-        itemCount={filteredMonthly.length}
+        itemCount={modelFilteredMonthly.length}
         unitLabel="month"
         kpiCards={kpiCards}
         onUpdateKpiCards={onUpdateKpiCards}
@@ -203,14 +245,14 @@ export function MonthlyView({
           </CardTitle>
         </CardHeader>
         <CardContent className="px-4 pb-4">
-          {filteredMonthly.length === 0 ? (
+          {modelFilteredMonthly.length === 0 ? (
             <div className="flex h-[220px] items-center justify-center text-sm text-muted-foreground">
               No monthly data in selected range
             </div>
           ) : (
             <ResponsiveContainer width="100%" height={220}>
               <BarChart
-                data={filteredMonthly.map((m) => ({
+                data={modelFilteredMonthly.map((m) => ({
                   label: m.month,
                   value: activeMetricMeta.getSeriesValue(m),
                 }))}
@@ -241,7 +283,7 @@ export function MonthlyView({
                   />
                 )}
                 <Bar dataKey="value" radius={[4, 4, 0, 0]}>
-                  {filteredMonthly.map((m) => (
+                  {modelFilteredMonthly.map((m) => (
                     <Cell key={m.month} fill={activeMetricMeta.accentColor} />
                   ))}
                 </Bar>
@@ -253,13 +295,22 @@ export function MonthlyView({
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 items-stretch">
         <ModelBreakdownChart
-          breakdowns={aggregatedBreakdowns}
+          breakdowns={filteredBreakdowns}
           mode="cost"
           onConfigureModel={onConfigureModel}
         />
         <ModelBreakdownChart
-          breakdowns={aggregatedBreakdowns}
+          breakdowns={filteredBreakdowns}
           mode="tokens"
+          headerAction={
+            onChangeExcludedModels ? (
+              <ModelFilter
+                models={aggregatedBreakdowns}
+                excludedModels={excludedModels}
+                onChangeExcluded={onChangeExcludedModels}
+              />
+            ) : undefined
+          }
         />
       </div>
 

@@ -13,6 +13,7 @@ import { DailySpendChart } from "./daily-spend-chart";
 import { DateRangeFilter } from "./date-range-filter";
 import { ModelBadge } from "./model-badge";
 import { ModelBreakdownChart } from "./model-breakdown";
+import { ModelFilter } from "./model-filter";
 import { TokenBreakdown } from "./token-breakdown";
 import { OverviewStats } from "./overview-stats";
 import {
@@ -31,6 +32,7 @@ import {
 import {
   aggregateModelBreakdowns,
   cn,
+  filterEntryByModels,
   formatCost,
   formatTokens,
   shortModelName,
@@ -53,6 +55,8 @@ export function DailyView({
   defaultRange = "all",
   kpiCards,
   onUpdateKpiCards,
+  excludedModels = [],
+  onChangeExcludedModels,
   activeMetric = "totalCost",
   onSelectMetric,
   onConfigureModel,
@@ -61,6 +65,8 @@ export function DailyView({
   defaultRange?: DailyRangePreset;
   kpiCards: KpiMetricId[];
   onUpdateKpiCards: (next: KpiMetricId[]) => void;
+  excludedModels?: string[];
+  onChangeExcludedModels?: (next: string[]) => void;
   activeMetric?: KpiMetricId;
   onSelectMetric?: (metric: KpiMetricId) => void;
   onConfigureModel?: (modelName: string) => void;
@@ -100,22 +106,14 @@ export function DailyView({
     [filteredDays, selectedDate]
   );
 
-  const statsDays = useMemo(
+  const unfilteredStatsDays = useMemo(
     () => (selectedDayEntry ? [selectedDayEntry] : filteredDays),
     [selectedDayEntry, filteredDays]
   );
 
-  const hasRangeFilter = Boolean(from || to);
-  const hasActiveFilter = hasRangeFilter || Boolean(selectedDayEntry);
-
-  const aggregatedTotals = useMemo(
-    () => (!hasActiveFilter && totals ? totals : sumUsageTotals(statsDays)),
-    [hasActiveFilter, totals, statsDays]
-  );
-
   const allBreakdowns = useMemo(
-    () => statsDays.flatMap((d) => d.modelBreakdowns),
-    [statsDays]
+    () => unfilteredStatsDays.flatMap((d) => d.modelBreakdowns),
+    [unfilteredStatsDays]
   );
 
   const aggregatedBreakdowns = useMemo(
@@ -123,14 +121,69 @@ export function DailyView({
     [allBreakdowns]
   );
 
+  const excludedSet = useMemo(() => new Set(excludedModels), [excludedModels]);
+
+  const hasModelFilter = useMemo(
+    () => excludedSet.size > 0 && aggregatedBreakdowns.some((b) => excludedSet.has(b.modelName)),
+    [aggregatedBreakdowns, excludedSet]
+  );
+
+  const modelFilteredAllDays = useMemo(
+    () =>
+      excludedSet.size === 0
+        ? chronologicalDays
+        : chronologicalDays.map((d) => filterEntryByModels(d, excludedSet)),
+    [chronologicalDays, excludedSet]
+  );
+
+  const modelFilteredRangeDays = useMemo(
+    () =>
+      excludedSet.size === 0
+        ? filteredDays
+        : filteredDays.map((d) => filterEntryByModels(d, excludedSet)),
+    [filteredDays, excludedSet]
+  );
+
+  const statsDays = useMemo(
+    () =>
+      selectedDayEntry
+        ? [filterEntryByModels(selectedDayEntry, excludedSet)]
+        : modelFilteredRangeDays,
+    [selectedDayEntry, excludedSet, modelFilteredRangeDays]
+  );
+
+  const hasRangeFilter = Boolean(from || to);
+  const hasDateFilter = hasRangeFilter || Boolean(selectedDayEntry);
+  const hasDataFilter = hasDateFilter || hasModelFilter;
+
+  const aggregatedTotals = useMemo(
+    () => (!hasDataFilter && totals ? totals : sumUsageTotals(statsDays)),
+    [hasDataFilter, totals, statsDays]
+  );
+
+  const filteredBreakdowns = useMemo(
+    () => aggregatedBreakdowns.filter((b) => !excludedSet.has(b.modelName)),
+    [aggregatedBreakdowns, excludedSet]
+  );
+
   const activeMetricMeta = KPI_METRIC_META[activeMetric];
+
+  const tableRows = useMemo(
+    () =>
+      hasModelFilter
+        ? modelFilteredRangeDays.filter(
+            (d) => d.modelBreakdowns.length > 0 || d.modelsUsed.length > 0
+          )
+        : modelFilteredRangeDays,
+    [hasModelFilter, modelFilteredRangeDays]
+  );
 
   const sortedDaily = useMemo(
     () =>
-      sortRows(filteredDays, sort, DAILY_SORT_GETTERS, (a, b) =>
+      sortRows(tableRows, sort, DAILY_SORT_GETTERS, (a, b) =>
         compareTimestampsDesc(a.date, b.date)
       ),
-    [filteredDays, sort]
+    [tableRows, sort]
   );
 
   function handleFromChange(nextFrom: string) {
@@ -182,11 +235,16 @@ export function DailyView({
     setSelectedDate(null);
   }
 
-  const statsLabel = selectedDayEntry
-    ? `${selectedDayEntry.date} (selected day)`
-    : hasRangeFilter
-      ? `${filteredDays.length} days (${from || minDate || "…"} – ${to || maxDate || "…"})`
-      : `${daily.length} days shown`;
+  const modelSuffix = hasModelFilter
+    ? ` · ${filteredBreakdowns.length}/${aggregatedBreakdowns.length} models`
+    : "";
+
+  const statsLabel =
+    (selectedDayEntry
+      ? `${selectedDayEntry.date} (selected day)`
+      : hasRangeFilter
+        ? `${filteredDays.length} days (${from || minDate || "…"} – ${to || maxDate || "…"})`
+        : `${daily.length} days shown`) + modelSuffix;
 
   return (
     <div className="space-y-4">
@@ -199,7 +257,7 @@ export function DailyView({
         onFromChange={handleFromChange}
         onToChange={handleToChange}
         onReset={handleReset}
-        hasActiveFilter={hasActiveFilter}
+        hasActiveFilter={hasDateFilter}
         selectedLabel={selectedDayEntry?.date ?? null}
         onClearSelected={() => setSelectedDate(null)}
         presets={DAILY_RANGE_OPTIONS}
@@ -231,8 +289,8 @@ export function DailyView({
         </CardHeader>
         <CardContent className="px-4 pb-4">
           <DailySpendChart
-            allDays={chronologicalDays}
-            visibleDays={filteredDays}
+            allDays={modelFilteredAllDays}
+            visibleDays={modelFilteredRangeDays}
             selectedDate={selectedDayEntry?.date ?? null}
             metric={activeMetric}
             onSelectDate={handleSelectDate}
@@ -243,13 +301,22 @@ export function DailyView({
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 items-stretch">
         <ModelBreakdownChart
-          breakdowns={aggregatedBreakdowns}
+          breakdowns={filteredBreakdowns}
           mode="cost"
           onConfigureModel={onConfigureModel}
         />
         <ModelBreakdownChart
-          breakdowns={aggregatedBreakdowns}
+          breakdowns={filteredBreakdowns}
           mode="tokens"
+          headerAction={
+            onChangeExcludedModels ? (
+              <ModelFilter
+                models={aggregatedBreakdowns}
+                excludedModels={excludedModels}
+                onChangeExcluded={onChangeExcludedModels}
+              />
+            ) : undefined
+          }
         />
       </div>
 

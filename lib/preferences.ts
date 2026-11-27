@@ -10,12 +10,14 @@ export interface DashboardPreferences {
   defaultDailyRange: DailyRangePreset;
   theme: ThemePreference;
   kpiCards: KpiMetricId[];
+  excludedModels: string[];
 }
 
 export const DEFAULT_PREFERENCES: DashboardPreferences = {
   defaultDailyRange: "all",
   theme: "dark",
   kpiCards: DEFAULT_KPI_CARDS,
+  excludedModels: [],
 };
 
 export const THEME_OPTIONS: ReadonlyArray<{
@@ -60,6 +62,19 @@ function normalizeKpiCards(rawCards: unknown): KpiMetricId[] {
   return valid.length > 0 ? valid : DEFAULT_KPI_CARDS;
 }
 
+function normalizeExcludedModels(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return [];
+  const seen = new Set<string>();
+  const valid: string[] = [];
+  for (const item of raw) {
+    if (typeof item === "string" && item.length > 0 && !seen.has(item)) {
+      seen.add(item);
+      valid.push(item);
+    }
+  }
+  return valid;
+}
+
 export function readPreferences(): DashboardPreferences {
   if (typeof window === "undefined") return DEFAULT_PREFERENCES;
   try {
@@ -80,7 +95,8 @@ export function readPreferences(): DashboardPreferences {
         ? (parsed.theme as ThemePreference)
         : "dark";
     const kpiCards = normalizeKpiCards(parsed.kpiCards);
-    cachedSnapshot = { defaultDailyRange, theme, kpiCards };
+    const excludedModels = normalizeExcludedModels(parsed.excludedModels);
+    cachedSnapshot = { defaultDailyRange, theme, kpiCards, excludedModels };
     return cachedSnapshot;
   } catch {
     return DEFAULT_PREFERENCES;
@@ -109,6 +125,7 @@ export function writePreferences(prefs: DashboardPreferences): void {
       defaultDailyRange: VALID_PRESETS.has(prefs.defaultDailyRange) ? prefs.defaultDailyRange : "all",
       theme: VALID_THEMES.has(prefs.theme) ? prefs.theme : "dark",
       kpiCards: normalizeKpiCards(prefs.kpiCards),
+      excludedModels: normalizeExcludedModels(prefs.excludedModels),
     };
     const serialized = JSON.stringify(normalized);
     cachedRaw = serialized;

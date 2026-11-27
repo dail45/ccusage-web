@@ -27,6 +27,7 @@ interface ModelBreakdownProps {
   breakdowns: ModelBreakdown[];
   mode?: ModelBreakdownMode;
   onConfigureModel?: (modelName: string) => void;
+  headerAction?: React.ReactNode;
 }
 
 interface ChartModelItem extends ModelBreakdown {
@@ -252,6 +253,7 @@ export function ModelBreakdownChart({
   breakdowns,
   mode = "cost",
   onConfigureModel,
+  headerAction,
 }: ModelBreakdownProps) {
   const scrollViewportId = useId();
   const scrollViewportRef = useRef<HTMLDivElement | null>(null);
@@ -556,9 +558,12 @@ export function ModelBreakdownChart({
   return (
     <Card className="h-full">
       <CardHeader className="pb-2 pt-4 px-4">
-        <CardTitle className="text-sm font-medium">
-          {mode === "tokens" ? "Tokens by Model" : "Cost by Model"}
-        </CardTitle>
+        <div className="flex items-center justify-between gap-2">
+          <CardTitle className="text-sm font-medium">
+            {mode === "tokens" ? "Tokens by Model" : "Cost by Model"}
+          </CardTitle>
+          {headerAction}
+        </div>
       </CardHeader>
       <CardContent className="px-4 pb-4 flex-1 flex flex-col">
         {chartData.length === 0 ? (

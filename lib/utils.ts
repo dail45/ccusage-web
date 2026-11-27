@@ -17,6 +17,33 @@ export function sumUsageTotals(entries: readonly Totals[]): Totals {
   };
 }
 
+export function filterEntryByModels<
+  T extends Totals & { modelsUsed: string[]; modelBreakdowns: ModelBreakdown[] },
+>(entry: T, excludedModels: ReadonlySet<string>): T {
+  if (excludedModels.size === 0) return entry;
+  const modelBreakdowns = (entry.modelBreakdowns ?? []).filter(
+    (b) => !excludedModels.has(b.modelName)
+  );
+  const inputTokens = modelBreakdowns.reduce((s, b) => s + b.inputTokens, 0);
+  const outputTokens = modelBreakdowns.reduce((s, b) => s + b.outputTokens, 0);
+  const cacheCreationTokens = modelBreakdowns.reduce((s, b) => s + b.cacheCreationTokens, 0);
+  const cacheReadTokens = modelBreakdowns.reduce((s, b) => s + b.cacheReadTokens, 0);
+  const totalTokens = inputTokens + outputTokens + cacheCreationTokens + cacheReadTokens;
+  const totalCost = modelBreakdowns.reduce((s, b) => s + b.cost, 0);
+  const modelsUsed = (entry.modelsUsed ?? []).filter((m) => !excludedModels.has(m));
+  return {
+    ...entry,
+    inputTokens,
+    outputTokens,
+    cacheCreationTokens,
+    cacheReadTokens,
+    totalTokens,
+    totalCost,
+    modelsUsed,
+    modelBreakdowns,
+  };
+}
+
 export function formatCost(cost: number): string {
   return `$${cost.toFixed(4)}`;
 }
