@@ -123,6 +123,7 @@ function startStandaloneServer(port) {
     PORT: String(port),
     HOSTNAME: HOST,
     NODE_ENV: "production",
+    CCUSAGE_INSTALL_METHOD: INSTALL_METHOD,
   };
   const bin = nativeCcusageBin(serverDir);
   if (bin) env.CCUSAGE_BIN = bin;
@@ -145,7 +146,11 @@ function startDevServer(port) {
     [nextBin, "dev", "--port", String(port), "--hostname", HOST],
     {
       cwd: REPO_ROOT,
-      env: { ...process.env, ELECTRON_RUN_AS_NODE: "1" },
+      env: {
+        ...process.env,
+        ELECTRON_RUN_AS_NODE: "1",
+        CCUSAGE_INSTALL_METHOD: INSTALL_METHOD,
+      },
       stdio: ["ignore", "pipe", "pipe"],
       windowsHide: true,
     },
@@ -314,10 +319,20 @@ function createWindow() {
 const RELEASES_URL = "https://github.com/dail45/ccusage-web/releases";
 const IS_PORTABLE = process.platform === "win32" && Boolean(process.env.PORTABLE_EXECUTABLE_DIR);
 const CAN_AUTO_INSTALL = app.isPackaged && !IS_PORTABLE && process.platform !== "darwin";
+const INSTALL_METHOD = !app.isPackaged
+  ? "electron-dev"
+  : IS_PORTABLE
+    ? "electron-portable"
+    : process.platform === "darwin"
+      ? "electron-mac"
+      : process.platform === "linux"
+        ? "electron-appimage"
+        : "electron-nsis";
 const UPDATE_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000;
 
 let updateState = {
   currentVersion: app.getVersion(),
+  installMethod: INSTALL_METHOD,
   canAutoInstall: CAN_AUTO_INSTALL,
   isPackaged: app.isPackaged,
   status: "idle",

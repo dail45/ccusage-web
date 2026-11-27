@@ -245,15 +245,55 @@ export function DesktopUpdateSettingsCard() {
   const { bridge, desktopState, versionInfo, currentVersion, isElectron, checking, refreshAll } =
     useAppVersionInfo();
   const [copiedCmd, setCopiedCmd] = useState(false);
+  const [webUpdating, setWebUpdating] = useState(false);
+  const [webUpdateSuccess, setWebUpdateSuccess] = useState<string | null>(null);
+  const [webUpdateError, setWebUpdateError] = useState<string | null>(null);
 
   const isDownloading = desktopState?.status === "downloading";
+  const installMethod = versionInfo?.installMethod;
+  const methodLabel =
+    installMethod?.label ?? (isElectron ? "Desktop (Electron)" : "Web UI");
+  const updateCommand = installMethod?.updateCommand || "npm i -g ccusage-webui@latest";
+  const canSelfUpdateWeb = Boolean(!isElectron && installMethod?.canSelfUpdate);
+  const primaryUpdateVersion =
+    installMethod?.primarySource === "github"
+      ? versionInfo?.github.hasUpdate
+        ? versionInfo.github.version
+        : null
+      : versionInfo?.npm.hasUpdate
+        ? versionInfo.npm.version
+        : null;
 
-  function handleCopyNpmCmd() {
-    const cmd = "npm i -g ccusage-webui@latest";
-    navigator.clipboard?.writeText(cmd).then(() => {
+  function handleCopyUpdateCmd() {
+    navigator.clipboard?.writeText(updateCommand).then(() => {
       setCopiedCmd(true);
       setTimeout(() => setCopiedCmd(false), 1800);
     }).catch(() => {});
+  }
+
+  async function handleWebSelfUpdate() {
+    setWebUpdating(true);
+    setWebUpdateError(null);
+    setWebUpdateSuccess(null);
+    try {
+      const res = await fetch("/api/version", { method: "POST" });
+      const body = (await res.json().catch(() => ({}))) as {
+        ok?: boolean;
+        message?: string;
+        error?: string;
+      };
+      if (!res.ok || !body.ok) {
+        throw new Error(body.error ?? `HTTP ${res.status}`);
+      }
+      setWebUpdateSuccess(
+        body.message ?? "Update installed. Restart ccusage-webui to apply."
+      );
+      await refreshAll();
+    } catch (err) {
+      setWebUpdateError(err instanceof Error ? err.message : "Update failed");
+    } finally {
+      setWebUpdating(false);
+    }
   }
 
   function renderDesktopStatus() {
@@ -316,7 +356,7 @@ export function DesktopUpdateSettingsCard() {
           <div className="flex items-center gap-2">
             <CardTitle className="text-sm font-medium">Version &amp; Updates</CardTitle>
             <Badge variant="secondary" className="text-[11px] font-normal">
-              {isElectron ? "Desktop (Electron)" : "Web UI (npm)"}
+              {methodLabel}
             </Badge>
           </div>
           <span className="font-mono text-xs font-medium">
@@ -409,21 +449,56 @@ export function DesktopUpdateSettingsCard() {
           </div>
         </div>
 
-        {/* Web UI npm update command hint when npm has a newer version */}
-        {!isElectron && versionInfo?.npm.hasUpdate && (
-          <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-blue-500/35 bg-blue-500/10 px-3 py-2 text-xs">
-            <span className="text-blue-700 dark:text-blue-300">
-              New npm version <code className="font-mono font-semibold">v{versionInfo.npm.version}</code> available:
-            </span>
-            <div className="flex items-center gap-1.5">
-              <code className="rounded bg-background/80 border border-border px-2 py-0.5 font-mono text-[11px]">
-                npm i -g ccusage-webui@latest
-              </code>
-              <Button type="button" size="xs" variant="outline" onClick={handleCopyNpmCmd}>
-                {copiedCmd ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
-                <span>{copiedCmd ? "Copied" : "Copy"}</span>
-              </Button>
+        {/* Web UI update: 1-click button when package manager is detected, otherwise npm command */}
+        {!isElectron && webUpdateSuccess && (
+          <div className="flex items-center gap-2 rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3 py-2 text-xs text-emerald-700 dark:text-emerald-300">
+            <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />
+            <span>{webUpdateSuccess}</span>
+          </div>
+        )}
+
+        {!isElectron && primaryUpdateVersion && !webUpdateSuccess && (
+          <div className="space-y-2 rounded-lg border border-blue-500/35 bg-blue-500/10 px-3 py-2 text-xs">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <span className="text-blue-700 dark:text-blue-300">
+                Update <code className="font-mono font-semibold">v{primaryUpdateVersion}</code> available ({methodLabel})
+              </span>
+              {canSelfUpdateWeb ? (
+                <Button
+                  type="button"
+                  size="xs"
+                  disabled={webUpdating}
+                  onClick={handleWebSelfUpdate}
+                >
+                  <Download className={`h-3 w-3 ${webUpdating ? "animate-bounce" : ""}`} />
+                  <span>{webUpdating ? "Updating…" : "Update now"}</span>
+                </Button>
+              ) : (
+                <div className="flex items-center gap-1.5">
+                  <code className="rounded bg-background/80 border border-border px-2 py-0.5 font-mono text-[11px]">
+                    {updateCommand}
+                  </code>
+                  <Button type="button" size="xs" variant="outline" onClick={handleCopyUpdateCmd}>
+                    {copiedCmd ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
+                    <span>{copiedCmd ? "Copied" : "Copy"}</span>
+                  </Button>
+                </div>
+              )}
             </div>
+            {webUpdateError && (
+              <div className="flex flex-wrap items-center justify-between gap-2 border-t border-blue-500/20 pt-2 text-[11px] text-destructive">
+                <span className="truncate">{webUpdateError}</span>
+                <div className="flex items-center gap-1.5 text-foreground">
+                  <code className="rounded bg-background/80 border border-border px-2 py-0.5 font-mono">
+                    {updateCommand}
+                  </code>
+                  <Button type="button" size="xs" variant="outline" onClick={handleCopyUpdateCmd}>
+                    {copiedCmd ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
+                    <span>{copiedCmd ? "Copied" : "Copy"}</span>
+                  </Button>
+                </div>
+              </div>
+            )}
           </div>
         )}
 

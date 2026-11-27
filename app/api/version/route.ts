@@ -1,4 +1,10 @@
+import { spawnSync } from "node:child_process";
 import { NextRequest, NextResponse } from "next/server";
+import {
+  detectInstallMethod,
+  type InstallMethodId,
+  type InstallMethodInfo,
+} from "@/lib/install-method";
 import pkg from "@/package.json";
 
 export const dynamic = "force-dynamic";
@@ -11,6 +17,7 @@ const CACHE_TTL_MS = 5 * 60 * 1000;
 
 export interface VersionInfoResponse {
   currentVersion: string;
+  installMethod: InstallMethodInfo;
   github: {
     version: string | null;
     url: string;
@@ -165,8 +172,12 @@ async function fetchNpmLatest(currentVersion: string): Promise<VersionInfoRespon
 export async function GET(request: NextRequest) {
   const forceRefresh = request.nextUrl.searchParams.get("refresh") === "1";
   const now = Date.now();
+  const installMethod = detectInstallMethod();
   if (!forceRefresh && cachedResponse && cachedResponse.expiresAt > now) {
-    return NextResponse.json(cachedResponse.data);
+    return NextResponse.json({
+      ...cachedResponse.data,
+      installMethod,
+    });
   }
 
   const currentVersion = cleanVersion(pkg.version) ?? "0.0.0";
@@ -177,6 +188,7 @@ export async function GET(request: NextRequest) {
 
   const data: VersionInfoResponse = {
     currentVersion,
+    installMethod,
     github,
     npm,
     checkedAt: new Date().toISOString(),
@@ -187,4 +199,64 @@ export async function GET(request: NextRequest) {
   }
 
   return NextResponse.json(data);
+}
+
+const SELF_UPDATE_COMMANDS: Partial<
+  Record<InstallMethodId, { bin: string; args: string[] }>
+> = {
+  "npm-global": { bin: "npm", args: ["install", "-g", `${NPM_PACKAGE}@latest`] },
+  "bun-global": { bin: "bun", args: ["add", "-g", `${NPM_PACKAGE}@latest`] },
+  "pnpm-global": { bin: "pnpm", args: ["add", "-g", `${NPM_PACKAGE}@latest`] },
+  "yarn-global": { bin: "yarn", args: ["global", "add", `${NPM_PACKAGE}@latest`] },
+  volta: { bin: "volta", args: ["install", `${NPM_PACKAGE}@latest`] },
+  mise: { bin: "mise", args: ["use", "-g", `npm:${NPM_PACKAGE}@latest`] },
+};
+
+export async function POST() {
+  const method = detectInstallMethod();
+  const spec = method.canSelfUpdate ? SELF_UPDATE_COMMANDS[method.id] : undefined;
+
+  if (!spec) {
+    return NextResponse.json(
+      {
+        ok: false,
+        error: `Self-update is not available for "${method.label}". Run: ${method.updateCommand || "npm i -g ccusage-webui@latest"}`,
+      },
+      { status: 400 }
+    );
+  }
+
+  const res = spawnSync(spec.bin, spec.args, {
+    timeout: 120_000,
+    encoding: "utf8",
+    shell: process.platform === "win32",
+  });
+
+  if (res.error) {
+    return NextResponse.json(
+      { ok: false, error: res.error.message },
+      { status: 500 }
+    );
+  }
+
+  if (res.status !== 0) {
+    const detail = (res.stderr || res.stdout || "").trim();
+    return NextResponse.json(
+      {
+        ok: false,
+        error: detail
+          ? detail.split(/\r?\n/).slice(-4).join(" ")
+          : `${spec.bin} exited with code ${res.status}`,
+      },
+      { status: 500 }
+    );
+  }
+
+  cachedResponse = null;
+  return NextResponse.json({
+    ok: true,
+    method: method.id,
+    command: method.updateCommand,
+    message: "Update installed. Restart ccusage-webui to apply the new version.",
+  });
 }

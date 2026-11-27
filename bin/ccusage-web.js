@@ -40,6 +40,10 @@ console.log(`\nStarting ccusage-webui on http://localhost:${port}\n`);
 
 const server = spawn(process.execPath, [nextCli, "start", "--port", port], {
   cwd: appDir,
+  env: {
+    ...process.env,
+    ...(process.argv[1] ? { CCUSAGE_BIN_ENTRY: process.argv[1] } : {}),
+  },
   stdio: "inherit",
 });
 
